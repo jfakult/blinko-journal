@@ -224,6 +224,9 @@ const Page = observer(() => {
                   {tabItems.map((item) => (
                     <button
                       key={item.key}
+                      // CUSTOM-JOURNAL: stable selector for the journal-declutter plugin
+                      // to hide specific settings tabs via CSS (plugins/journal-declutter).
+                      data-settings-key={item.key}
                       onClick={() => setSelected(item.key)}
                       className={`cursor-pointer flex items-center px-3 py-2 rounded-lg text-sm transition-colors ${selected === item.key
                         ? 'bg-primary text-primary-foreground font-medium'

@@ -1,0 +1,17 @@
+{
+  "name": "journal-declutter",
+  "author": "jfakult15",
+  "url": "https://github.com/REPLACE_ME/blinko-journal",
+  "version": "1.0.0",
+  "minAppVersion": "0.1.0",
+  "displayName": {
+    "default": "Journal Declutter"
+  },
+  "description": {
+    "default": "Hides Blinko UI surfaces that are irrelevant to a single-user personal voice journal (music player, MCP settings, and other multi-purpose-notes-app clutter). CSS-only, no data access."
+  },
+  "readme": {
+    "default": "README.md"
+  },
+  "icon": "mdi:eye-off-outline"
+}

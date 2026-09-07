@@ -1,0 +1,121 @@
+/*
+ * journal-declutter/style.css
+ *
+ * CSS-only hiding rules for UI surfaces that are irrelevant to a single-user
+ * personal voice journal. See docs/workstreams/06-ui-declutter.md in the main
+ * repo for the full writeup of what each rule targets and why, plus which
+ * items could NOT be reached this way and needed a small, marked core patch
+ * (search the app repo for `CUSTOM-JOURNAL:`) to expose a stable selector.
+ *
+ * This file is auto-discovered by app/src/store/plugin/pluginManagerStore.ts
+ * (any *.css file anywhere under the installed plugin directory is loaded as
+ * a <style> tag) — nothing in src/index.tsx needs to reference it.
+ *
+ * All rules use `display: none !important` rather than `visibility:hidden`
+ * so hidden elements don't reserve layout space.
+ */
+
+/* ---------------------------------------------------------------------
+ * 1. Floating music mini-player (BlinkoMusicPlayer)
+ *
+ * Rendered globally in app/src/App.tsx as <BlinkoMusicPlayer /> and only
+ * mounts DOM when a track is actively playing (musicManager.showMiniPlayer
+ * && currentTrack), so in normal single-user journal use it never appears.
+ * Hidden anyway as a defensive measure in case Spotify metadata / background
+ * audio playback is ever triggered accidentally.
+ *
+ * Selector is a combination of Tailwind utility classes that, together, are
+ * unique to this component's root node in app/src/components/BlinkoMusicPlayer/index.tsx
+ * (`className="fixed top-3 left-[50%] z-50 w-fit md:w-[450px] rounded-2xl bg-none select-none"`).
+ * `bg-none` + `select-none` + `fixed` + `top-3` + `z-50` is a distinctive
+ * enough combination that it should not collide with other fixed-position
+ * elements in the app (toasts, dialogs, etc. use different utility sets).
+ * NOTE: this does NOT touch the per-note audio attachment player
+ * (app/src/components/Common/AttachmentRender/audioRender.tsx) — that's the
+ * voice-memo playback UI, which is core to this project and must stay.
+ * --------------------------------------------------------------------- */
+.fixed.top-3.z-50.bg-none.select-none {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------
+ * 2. Settings > Music Settings tab (Spotify metadata lookup config)
+ *
+ * Desktop settings nav: requires a 1-line core patch
+ * (`data-settings-key={item.key}` on the tab <button> in app/src/pages/settings.tsx,
+ * marked // CUSTOM-JOURNAL:) because the generated tab buttons carry no
+ * distinguishing DOM attribute otherwise. See docs/workstreams/06-ui-declutter.md.
+ * --------------------------------------------------------------------- */
+button[data-settings-key="music"] {
+  display: none !important;
+}
+
+/* Mobile settings tabs render through app/src/components/Common/ScrollableTabs,
+ * which is a thin wrapper around HeroUI's <Tabs>/<Tab>. HeroUI (NextUI-derived)
+ * renders each tab's React `key` as a `data-key` attribute on the underlying
+ * button — no core patch needed here, but this DOES rely on that HeroUI
+ * implementation detail, so double-check it still holds after `bun install`
+ * pulls the current @heroui/react version (see README "Verify before you rely
+ * on it" section). "music" is not used as a tab `key` anywhere else in the
+ * app, so this selector should not accidentally hide an unrelated tab. */
+[data-key="music"] {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------
+ * 3. MCP server settings (inside Settings > AI)
+ *
+ * Requires a small core patch in app/src/components/BlinkoSettings/AiSetting/AiSetting.tsx
+ * (marked // CUSTOM-JOURNAL:) wrapping <McpServersSection /> in a div and
+ * adding a className to the "MCP Integration" CollapsibleCard, because
+ * neither had any pre-existing selector to hang CSS off of and MCP is
+ * embedded inline in the AI tab (not its own settings tab) alongside AI
+ * provider/model config that must stay visible.
+ * --------------------------------------------------------------------- */
+.cj-hide-mcp {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------
+ * 4. Per-note "export as RSS feed" icon (BlinkoCard/cardHeader.tsx)
+ *
+ * There is no dedicated "RSS reader" feature in this codebase (see
+ * docs/workstreams/06-ui-declutter.md) — the closest thing is this small
+ * per-note icon, shown only in share-mode card headers, that opens the
+ * note author's Atom feed URL. Requires a 1-line core patch (adding an
+ * existing-className string, marked // CUSTOM-JOURNAL:) because the shared
+ * <Icon> component renders a bare inline <svg> with no distinguishing
+ * data attribute to select on.
+ * --------------------------------------------------------------------- */
+.cj-hide-rss-export {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------
+ * 5. Telegram community link (Settings > About)
+ *
+ * There is no "Telegram bot settings" feature in this fork's core — only
+ * a community-chat link (alongside GitHub/Discord) in AboutSetting.tsx.
+ * Hidden as the closest match to the brief's "Telegram bot settings" ask.
+ * Requires a 1-line core patch (marked // CUSTOM-JOURNAL:) passing a value
+ * into the `<Item className={...}>` prop that already existed and was
+ * already unused for this row — not a new capability, just wiring one up.
+ * --------------------------------------------------------------------- */
+.cj-hide-telegram {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------------
+ * Not hidden — documented as N/A, see docs/workstreams/06-ui-declutter.md:
+ *
+ * - Follow / federation (BlinkoFollowDialog, /hub page): already has zero
+ *   nav entry points anywhere in Sidebar, MobileNavBar, UserAvatarDropdown,
+ *   or the top-level Layout — only reachable by typing /hub directly.
+ *   Nothing to hide.
+ * - Plugin-manager visibility for non-admin accounts: already correctly
+ *   gated in core (`requireAdmin: true` filtered against `user.isSuperAdmin`
+ *   in app/src/pages/settings.tsx). This is a single-user, single-admin
+ *   deployment — the one account IS the admin and needs the Plugin Settings
+ *   tab to install/manage this very plugin, so it is intentionally left
+ *   visible rather than hidden.
+ * --------------------------------------------------------------------- */

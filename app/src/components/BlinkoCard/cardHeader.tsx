@@ -130,7 +130,11 @@ export const CardHeader = observer(({ blinkoItem, blinko, isShareMode, isExpande
 
         {isShareMode && (
           <Tooltip content="RSS" delay={1000}>
-            <div className="flex items-center gap-2">
+            {/* CUSTOM-JOURNAL: cj-hide-rss-export class lets the journal-declutter
+                plugin (plugins/journal-declutter) hide this via CSS — the shared
+                <Icon> component renders a bare inline <svg> with no attribute
+                identifying which icon it is, so there was nothing else to select on. */}
+            <div className="flex items-center gap-2 cj-hide-rss-export">
               <Icon onClick={e => {
                 window.open(window.location.origin + `/api/rss/${blinkoItem.accountId}/atom?row=20`)
               }} icon="mingcute:rss-2-fill" className='opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-0 ml-2 cursor-pointer hover:text-primary' width="16" height="16" />

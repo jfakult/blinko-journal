@@ -184,7 +184,12 @@ export const AboutSetting = observer(() => {
             </Link>
           }
         />
+        {/* CUSTOM-JOURNAL: className wires this row into the journal-declutter plugin's
+            existing (previously-unused-here) `Item` className prop so it can be hidden
+            via CSS (.cj-hide-telegram) — there's no dedicated Telegram bot integration
+            in this fork's core, just this community-chat link. */}
         <Item
+          className="cj-hide-telegram"
           leftContent={<>Telegram</>}
           rightContent={
             <Link

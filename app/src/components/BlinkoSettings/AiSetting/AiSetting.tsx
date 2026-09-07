@@ -92,9 +92,15 @@ export default observer(function AiSetting() {
 
       <AiToolsSection />
 
-      <McpServersSection />
+      {/* CUSTOM-JOURNAL: wrapper + className below exist only so the journal-declutter
+          plugin (plugins/journal-declutter) has a stable selector (.cj-hide-mcp) to hide
+          MCP config via CSS — MCP is embedded inline in this AI tab rather than being its
+          own settings tab, so there was nothing else to hang a selector off of. */}
+      <div className="cj-hide-mcp">
+        <McpServersSection />
+      </div>
 
-      <CollapsibleCard icon="hugeicons:api" title="MCP Integration">
+      <CollapsibleCard icon="hugeicons:api" title="MCP Integration" className="cj-hide-mcp">
         <div className="space-y-4">
           <div className="text-sm text-default-600 mb-4">
             {t('mcp-integration-desc', 'Model Context Protocol (MCP) integration allows AI assistants to connect to Blinko and use its tools.')}
