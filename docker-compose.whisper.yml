@@ -1,0 +1,150 @@
+# Self-hosted, OpenAI-API-compatible speech-to-text service (Workstream 2).
+#
+# Kept as its own compose file (docker-compose.whisper.yml) instead of being
+# merged into docker-compose.prod.yml:
+#   - docker-compose.prod.yml is upstream-shaped (it's the file blinkospace/blinko
+#     ships and periodically changes); keeping our addition in a separate file
+#     means `git fetch upstream && git merge upstream/main` is very unlikely to
+#     conflict on this, per the brief's "minimum long-term maintenance" goal.
+#   - This service is genuinely optional/independent infra (you could point
+#     Blinko at a different ASR endpoint entirely, or run this on a different
+#     host) rather than a core part of "the app," so it reads cleaner split out.
+#   - Deploy both together with:
+#       docker compose -f docker-compose.prod.yml -f docker-compose.whisper.yml up -d
+#
+# Project: speaches (https://github.com/speaches-ai/speaches), MIT licensed.
+# Formerly published as "faster-whisper-server" (fedirz/faster-whisper-server);
+# same codebase/maintainer, renamed after TTS support was added. Actively
+# maintained (regular releases; v0.9.0-rc series in flight as of this writing).
+# Wraps SYSTRAN/faster-whisper (CTranslate2) behind a FastAPI server whose
+# /v1/audio/transcriptions route mirrors the OpenAI Whisper API request/response
+# shape byte-for-byte, which is what Blinko's "custom" AI-provider transcription
+# path expects (see server/aiServer/providers/AudioProvider.ts +
+# server/aiServer/aiModelFactory.ts: 'custom' provider constructs a plain
+# `openai` SDK client pointed at `provider.baseURL`, and the SDK itself POSTs to
+# `${baseURL}/audio/transcriptions`). Full contract documented in
+# docs/workstreams/02-whisper-service.md.
+#
+# NOT started/benchmarked here — this is config only. Deploying, GPU capacity
+# verification, and latency/accuracy benchmarking are explicitly deferred to
+# whoever runs this on the real Unraid box (see the doc above).
+
+networks:
+  blinko-network:
+    # Must be the SAME network docker-compose.prod.yml's blinko-website/postgres
+    # services attach to, so Blinko can reach this container at `whisper:8000`
+    # by Docker DNS. NOTE: as of this writing docker-compose.prod.yml declares
+    # `blinko-network` with `driver: host` and has the `networks:` block on
+    # blinko-website commented out — under a *host*-driver network there is no
+    # bridge/DNS to resolve `whisper` by service name at all. That file needs
+    # to move to a normal bridge network (the compose default) with both
+    # blinko-website and this service actually attached to `blinko-network`
+    # for the `whisper:8000` address other workstreams are coded against to
+    # work. Flagging for whoever finalizes docker-compose.prod.yml
+    # (Workstream 1 / Workstream 7) rather than editing that file here.
+    external: true
+
+services:
+  whisper:
+    # Pin a specific tag before real deployment rather than trusting `latest-*`
+    # long-term; `latest-cuda-12.6.3` matches this project's own published
+    # compose.cuda.yaml as of this writing (CUDA 12.6.3 base image). Confirm
+    # the host's installed NVIDIA driver/CUDA runtime is compatible before
+    # deploying, and prefer a pinned release tag (e.g. `0.9.0-cuda-12.6.3`) if
+    # one exists at deploy time, for reproducibility.
+    image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
+    restart: always
+    networks:
+      - blinko-network
+    ports:
+      # Match the docker-compose.prod.yml convention (host:container). Only
+      # needs to be reachable from the Blinko container on blinko-network in
+      # practice; the host port publish is for local debugging with curl.
+      - 8000:8000
+    volumes:
+      # Whisper model weights are pulled from Hugging Face on first use and
+      # cached here. Without this volume, every container recreate re-downloads
+      # the model (multi-GB, needless load on first transcription after every
+      # deploy).
+      - whisper-model-cache:/home/ubuntu/.cache/huggingface/hub
+    environment:
+      # --- Model selection -----------------------------------------------
+      # Default pick: a mid-size Whisper model, `Systran/faster-whisper-medium`
+      # (CTranslate2 port of openai/whisper-medium, ~769M params).
+      #   - tiny/base/small: fastest and lightest on VRAM, but noticeably worse
+      #     accuracy on anything but very clear audio — risky for a personal
+      #     voice journal where a mis-transcribed entry is annoying to notice
+      #     and fix later.
+      #   - medium (chosen): good accuracy/latency balance for short voice-memo
+      #     length recordings (seconds to a few minutes), modest VRAM footprint
+      #     (roughly ~1.5GB at float16), which matters because this GPU is
+      #     shared with an already-running Ollama instance.
+      #   - large-v3 / large-v3-turbo: meaningfully better accuracy (turbo also
+      #     recovers most of large-v3's latency by dropping decoder layers),
+      #     but larger VRAM footprint. Worth revisiting as an upgrade once
+      #     real GPU headroom alongside Ollama is confirmed on the actual
+      #     server (see capacity-check note below) — swap this env var, no
+      #     other changes needed since the model id is also sent per-request.
+      # PRELOAD_MODELS pulls + warms this model at container startup instead
+      # of on the first transcription request (avoids a slow first note).
+      PRELOAD_MODELS: '["Systran/faster-whisper-medium"]'
+
+      # --- Inference device -------------------------------------------------
+      WHISPER__INFERENCE_DEVICE: cuda
+      WHISPER__COMPUTE_TYPE: float16
+
+      # --- Server ------------------------------------------------------------
+      UVICORN_HOST: 0.0.0.0
+      UVICORN_PORT: 8000
+      ENABLE_UI: "false" # no need for the built-in Gradio test UI in prod
+
+      # --- Idle unload -------------------------------------------------------
+      # Unload the model from GPU memory after 5 minutes of inactivity so it
+      # isn't permanently resident and competing with Ollama between journal
+      # entries. Costs a reload (a few seconds) on the next transcription
+      # after an idle period, which is an acceptable trade for a personal
+      # journal's bursty usage pattern.
+      STT_MODEL_TTL: "300"
+
+      # --- Auth ----------------------------------------------------------
+      # Left unset: this container only needs to be reachable from the Blinko
+      # container on the internal `blinko-network`, not published to the LAN
+      # or internet (see Workstream 7 network hardening). If it does end up
+      # reachable more broadly, set API_KEY here and configure the matching
+      # key as the "API Key" field on the corresponding AiProviders row in
+      # Blinko.
+      # API_KEY: ""
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s # first boot may need to download the model
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # --- GPU reservation --------------------------------------------------
+    # UNVERIFIED — needs a real capacity check on the actual Unraid server
+    # before this is trusted. Ollama already runs on this host's GPU with an
+    # unknown footprint from here. `count: 1` (rather than `all`) is a
+    # conservative starting guess so this container doesn't claim exclusive
+    # access to a GPU Ollama also needs, but it has NOT been validated against
+    # actual free VRAM, Ollama's loaded-model size, or whether both workloads
+    # can run concurrently without OOMing each other. Whoever deploys this
+    # should: check `nvidia-smi` for free VRAM with Ollama's normal model
+    # loaded, confirm faster-whisper-medium's actual footprint on this specific
+    # GPU, and only then treat this reservation as correct (adjusting model
+    # size down, or adding memory limits, if there isn't enough headroom).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  whisper-model-cache:
