@@ -44,6 +44,15 @@ export const analyticsRouter = router({
       tagStats: z.array(z.object({
         tagName: z.string(),
         count: z.number()
+      })).optional(),
+      // CUSTOM-JOURNAL: location distribution for requirement 9 ("locations, moods, trends").
+      // Sourced from notes.metadata.location.name (see docs/workstreams/08-analytics-view.md
+      // for the expected shape) — an admin-facing capture flow doesn't exist yet, so this is
+      // forward-compatible plumbing: it stays empty (and the chart stays hidden) until
+      // location capture writes that field.
+      locationStats: z.array(z.object({
+        locationName: z.string(),
+        count: z.number()
       })).optional()
     }))
     .mutation(async function ({ ctx, input }) {
@@ -122,12 +131,47 @@ export const analyticsRouter = router({
         })
       }
 
+      // CUSTOM-JOURNAL: aggregate notes.metadata->location->name (a free-form Json field —
+      // see docs/workstreams/08-analytics-view.md for the expected shape and why it's a
+      // "name" string rather than raw lat/lng). Rows without a location simply don't match
+      // the WHERE clause, so this is a no-op until something actually writes that field.
+      const locationRows = await prisma.$queryRaw<Array<{ locationName: string; count: bigint }>>`
+        SELECT
+          metadata->'location'->>'name' as "locationName",
+          COUNT(*) as count
+        FROM "notes"
+        WHERE "accountId" = ${parseInt(ctx.id)}
+          AND "createdAt" >= ${startDate}
+          AND "createdAt" <= ${endDate}
+          AND metadata->'location'->>'name' IS NOT NULL
+          AND metadata->'location'->>'name' != ''
+        GROUP BY "locationName"
+        ORDER BY count DESC
+      `
+
+      const TOP_LOCATION_COUNT = 10
+      const topLocations = locationRows.slice(0, TOP_LOCATION_COUNT)
+      const otherLocationsCount = locationRows.slice(TOP_LOCATION_COUNT).reduce((sum, row) => sum + Number(row.count), 0)
+
+      const finalLocationStats = topLocations.map(row => ({
+        locationName: row.locationName,
+        count: Number(row.count)
+      }))
+
+      if (otherLocationsCount > 0) {
+        finalLocationStats.push({
+          locationName: 'Others',
+          count: otherLocationsCount
+        })
+      }
+
       return {
         noteCount,
         totalWords,
         maxDailyWords,
         activeDays,
-        tagStats: finalTagStats
+        tagStats: finalTagStats,
+        locationStats: finalLocationStats
       }
     })
 })

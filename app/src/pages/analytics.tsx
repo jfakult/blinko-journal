@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next"
 import { HeatMap } from "@/components/BlinkoAnalytics/HeatMap"
 import { StatsCards } from "@/components/BlinkoAnalytics/StatsCards"
 import { TagDistributionChart } from "@/components/BlinkoAnalytics/TagDistributionChart"
+import { LocationDistributionChart } from "@/components/BlinkoAnalytics/LocationDistributionChart"
 import dayjs from "dayjs"
 import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem, Button } from "@heroui/react"
 import { Icon } from '@/components/Common/Iconify/icons'
@@ -81,6 +82,14 @@ const Analytics = observer(() => {
       {
         stats?.tagStats && stats.tagStats.length > 0 && (
           <TagDistributionChart tagStats={stats.tagStats} />
+        )
+      }
+
+      {
+        /* CUSTOM-JOURNAL: hidden until notes.metadata.location.name has any data —
+           see docs/workstreams/08-analytics-view.md */
+        stats?.locationStats && stats.locationStats.length > 0 && (
+          <LocationDistributionChart locationStats={stats.locationStats} />
         )
       }
     </ScrollArea >
