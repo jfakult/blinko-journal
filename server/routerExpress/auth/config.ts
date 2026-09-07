@@ -28,6 +28,21 @@ const useOAuthStrategy = (providerId: string, strategy: any) => {
   registeredOAuthProviderIds.add(providerId);
 };
 
+// CUSTOM-JOURNAL: the Custom Provider settings UI (SSOSetting.tsx) leaves the
+// Scope field as an empty string, not undefined, when the admin doesn't fill it in
+// (its placeholder is only a hint, not a real default value). `''.split(' ')`
+// evaluates to `['']` - a truthy, non-empty array - so the previous
+// `provider.scope?.split(' ') || <fallback>` fell through to the fallback only
+// when scope was literally undefined, never for the common case of "left blank".
+// That registered the strategy with an effectively empty OAuth scope, which is
+// enough to break login against a real OIDC provider (e.g. missing "openid" means
+// no ID token / no userinfo access). This normalizes blank/whitespace-only scope
+// to "not provided" so the well-known scopes_supported / default scope is used instead.
+const parseScope = (scope?: string): string[] | undefined => {
+  const trimmed = scope?.trim();
+  return trimmed ? trimmed.split(/\s+/) : undefined;
+};
+
 export const configureSession = async (app: any) => {
   await initJwtStrategy();
   initLocalStrategy();
@@ -264,7 +279,23 @@ const initOAuthStrategies = async () => {
     const providers = config.oauth2Providers || [];
     const failedProviders: string[] = [];
     for (const provider of providers) {
-      const callbackURL = `/api/auth/callback/${provider.id}`;
+      // CUSTOM-JOURNAL: build an absolute callback URL from NEXTAUTH_URL when it's set.
+      // passport-oauth2 (and the passport-* strategies built on it) resolve a *relative*
+      // callbackURL against the incoming request's own protocol/host/path (see
+      // passport-oauth2/lib/utils.js originalURL()), which does not know about a
+      // reverse-proxy path prefix that gets stripped before the request reaches this
+      // container (e.g. https://fakult.net/journal -> proxy strips "/journal" -> app
+      // sees "/"). That silently drops the "/journal" prefix from the OAuth/OIDC
+      // redirect_uri, which then no longer matches the callback URL registered with the
+      // identity provider (e.g. Pocket-ID), breaking login. NEXTAUTH_URL/NEXT_PUBLIC_BASE_URL
+      // are otherwise unused by this app (legacy Next.js-era names kept for the env file) -
+      // this is the first real consumer of NEXTAUTH_URL. Falls back to the previous
+      // relative-path behavior if NEXTAUTH_URL isn't set, so root-deployed instances are
+      // unaffected.
+      const authBaseUrl = (process.env.NEXTAUTH_URL || '').replace(/\/+$/, '');
+      const callbackURL = authBaseUrl
+        ? `${authBaseUrl}/api/auth/callback/${provider.id}`
+        : `/api/auth/callback/${provider.id}`;
       switch (provider.id) {
         case 'github':
           useOAuthStrategy(provider.id, new GitHubStrategy({
@@ -405,7 +436,7 @@ const initOAuthStrategies = async () => {
                   clientID: provider.clientId,
                   clientSecret: provider.clientSecret,
                   callbackURL: callbackURL,
-                  scope: provider.scope?.split(' ') || wellKnownConfig.scopes_supported || ['openid', 'profile', 'email'],
+                  scope: parseScope(provider.scope) || wellKnownConfig.scopes_supported || ['openid', 'profile', 'email'], // CUSTOM-JOURNAL: see parseScope() above
                   passReqToCallback: true
                 };
               } else {
@@ -415,7 +446,7 @@ const initOAuthStrategies = async () => {
                   clientID: provider.clientId,
                   clientSecret: provider.clientSecret,
                   callbackURL: callbackURL,
-                  scope: provider.scope?.split(' ') || ['profile', 'email'],
+                  scope: parseScope(provider.scope) || ['profile', 'email'], // CUSTOM-JOURNAL: see parseScope() above
                   passReqToCallback: true
                 };
               }

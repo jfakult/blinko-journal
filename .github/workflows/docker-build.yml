@@ -1,14 +1,19 @@
 name: Build and Push Docker Image
 
+# CUSTOM-JOURNAL: retargeted from upstream - was building on push to a stray feature
+# branch (fix/multi-select-duplicate-and-export-auth, likely left over from whatever
+# upstream commit added this workflow) and pushing to ${{ github.repository }} (i.e.
+# whatever this repo is named/owned as on GitHub). Per docs/PROJECT_BRIEF.md §5, this
+# fork builds/pushes on merge to `main`, to our own ghcr.io namespace.
 on:
   push:
     branches:
-      - fix/multi-select-duplicate-and-export-auth
+      - main
   workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  IMAGE_NAME: jfakult/blinko-journal
 
 jobs:
   build:
@@ -34,7 +39,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=fixed
+            type=raw,value=latest
             type=sha,prefix={{branch}}-
 
       - name: Build and push Docker image

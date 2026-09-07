@@ -1,59 +1,110 @@
+# CUSTOM-JOURNAL: retargeted from upstream's docker-compose.prod.yml (which pointed
+# at `blinkospace/blinko:latest` and a remote/example postgres) to our own fork image
+# and a local postgres service. See docs/workstreams/01-deploy-pipeline.md for the
+# full reasoning behind every value below (subpath deployment, SSO callback URL,
+# network topology).
+
 networks:
   blinko-network:
-    driver: host
+    # Named explicitly (rather than the compose-project-prefixed default) so sibling
+    # stacks - e.g. the Workstream 2 `infra/whisper-service` compose file, which
+    # expects to reach this stack's services and expose `whisper:8000` on the same
+    # network - can join it with `networks: { blinko-network: { external: true } }`.
+    name: blinko-network
+    driver: bridge
 
 services:
   blinko-website:
-    image: blinkospace/blinko:latest
-    # container_name: blinko-website
+    # Built and pushed by .github/workflows/docker-build.yml on merge to main.
+    image: ghcr.io/jfakult/blinko-journal:latest
     environment:
       NODE_ENV: production
-      # NEXTAUTH_URL: http://localhost:1111
-      # NEXT_PUBLIC_BASE_URL: http://localhost:1111
+      # Blinko is reverse-proxied at a SUBPATH of the main domain (fakult.net/journal),
+      # not its own subdomain. There is no Next.js `basePath`/router `basename` support
+      # anywhere in this codebase (this is a Vite/React SPA + Express backend, not
+      # Next.js) - vite.config.ts has no `base`, App.tsx's <BrowserRouter> has no
+      # `basename`, and every static asset / API route in server/index.ts is mounted at
+      # a root-absolute path (/api, /dist/js/..., /plugins, /v1, ...). The correct,
+      # minimal-maintenance approach is therefore: the reverse proxy strips the
+      # "/journal" prefix before forwarding to this container, and the container serves
+      # everything as if it were at "/". See docs/workstreams/01-deploy-pipeline.md
+      # ("Subpath deployment" section) for the full investigation.
+      #
+      # NEXTAUTH_URL/NEXT_PUBLIC_BASE_URL are otherwise legacy/unused names carried over
+      # from Blinko's pre-Tauri-refactor Next.js days (grep confirms nothing in
+      # app/src or server reads NEXT_PUBLIC_BASE_URL). As of this workstream,
+      # NEXTAUTH_URL IS consumed by server/routerExpress/auth/config.ts to build an
+      # absolute OAuth/OIDC callback URL (see the `// CUSTOM-JOURNAL:` comment there) -
+      # it MUST be set to the full externally-visible base URL, subpath included, or
+      # Pocket-ID SSO login will fail even though the rest of the app works fine behind
+      # the path-stripping proxy.
+      NEXTAUTH_URL: https://fakult.net/journal
+      NEXT_PUBLIC_BASE_URL: https://fakult.net/journal
+      # CHANGE ME before deploying - generate with e.g. `openssl rand -base64 32`.
+      # Consider moving this (and DATABASE_URL's password) to a `.env` file loaded via
+      # `env_file:` instead of inlining secrets in this committed compose file.
       NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
-      DATABASE_URL: postgresql://postgres:mysecretpassword@192.168.31.69:5435/postgres
-    # depends_on:
-    #   postgres:
-    #     condition: service_healthy
-    # Make sure you have enough permissions.
-    # volumes:
-      # - ~/your-name/.blinko:/app/.blinko 
+      DATABASE_URL: postgresql://postgres:mysecretpassword@postgres:5432/postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Persists uploaded attachments/config outside the container.
+      - blinko-data:/app/.blinko
     restart: always
     logging:
       options:
         max-size: "10m"
         max-file: "3"
     ports:
+      # Published on the host so the reverse proxy (which lives elsewhere on the
+      # Unraid host - see the Ollama/Pocket-ID note below) can reach it. If the
+      # reverse proxy instead runs as its own container on `blinko-network`, this
+      # port publish can be dropped in favor of container-to-container access.
       - 1111:1111
     healthcheck:
       test: ["CMD", "curl", "-f", "http://blinko-website:1111/"]
-      interval: 30s 
-      timeout: 10s   
-      retries: 5     
-      start_period: 30s 
-    # networks:
-    #   - blinko-network
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - blinko-network
 
-  # postgres:
-  #   image: postgres:14
-  #   container_name: blinko-postgres
-  #   restart: always
-  #   ports:
-  #     - 5435:5432
-  #   environment:
-  #     POSTGRES_DB: postgres
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: mysecretpassword
-  #     TZ: Asia/Shanghai
-  #   # Persisting container data
-  #   # Make sure you have enough permissions.
-  #   # volumes:
-  #     # - ~/your-name/.db:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test:
-  #       ["CMD", "pg_isready", "-U", "postgres", "-d", "postgres"]
-  #     interval: 5s
-  #     timeout: 10s
-  #     retries: 5
-  #   networks:
-  #     - blinko-network
+  postgres:
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      # CHANGE ME - keep in sync with DATABASE_URL above.
+      POSTGRES_PASSWORD: mysecretpassword
+    volumes:
+      - blinko-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "postgres"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    networks:
+      - blinko-network
+
+  # OPEN QUESTION (not resolved here - needs a decision on the actual Unraid host):
+  # Ollama and Pocket-ID already run elsewhere on the same Unraid host, OUTSIDE this
+  # compose stack. How this stack's containers reach them is not yet known from this
+  # repo - it's either:
+  #   (a) a shared external Docker network that Ollama's/Pocket-ID's containers are
+  #       also attached to (add `networks: { <shared-net>: { external: true } }` to
+  #       blinko-website here, and configure the Ollama endpoint in Blinko's Settings
+  #       UI using that network's service/container name), or
+  #   (b) plain LAN IP + port (e.g. http://192.168.x.x:11434 for Ollama), reachable
+  #       because this stack's containers can already route to the host LAN.
+  # A future `whisper` service (Workstream 2, branch infra/whisper-service) will need
+  # the same answer and is expected to join `blinko-network` as service name `whisper`
+  # on port 8000. Whoever deploys this on the real server should resolve this and
+  # update the Ollama/Whisper endpoint values in Blinko's Settings UI accordingly -
+  # nothing here should be guessed at (no invented IP/network name).
+
+volumes:
+  blinko-data:
+  blinko-db:
