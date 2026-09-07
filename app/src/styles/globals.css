@@ -15,9 +15,10 @@
   overflow: hidden !important;
 }
 
+/* CUSTOM-JOURNAL: warm highlighter-style selection instead of cold SaaS blue */
 ::selection {
-  background-color: #47a3f3;
-  color: #fefefe;
+  background-color: #f0c687;
+  color: #2e2117;
 }
 
 ::marker {
@@ -160,124 +161,128 @@ body {
   }
 }
 
+/* CUSTOM-JOURNAL: warm "paper & ink" palette replacing the stock neutral/blue-gray
+   theme, for both light and dark mode. See docs/workstreams/05-ui-reskin.md for
+   rationale. Only color values changed here — structure/variable names untouched
+   so this stays a low-risk diff against upstream. */
 @layer base {
   :root {
     --font-family: 'Inter', sans-serif;
     --swiper-3d-shadow: rgba(0, 0, 0, .15);
-    --background: hsl(0 0% 100%);
-    --foreground: hsl(222.2 47.4% 11.2%);
-    --secondbackground: #f8f8f8;
+    --background: #fbf6ec;
+    --foreground: #33261c;
+    --secondbackground: #f3e9d8;
 
-    --hover: #efeee7d9;
-    --hover-foreground: hsl(215.4 16.3% 46.9%);
+    --hover: #efe3cdd9;
+    --hover-foreground: #7a6c5d;
 
     /* like: time  */
-    --desc: #808080;
+    --desc: #8a7a66;
     /* like: no data found  */
-    --ignore: #bababa;
-    --tag: #c35af7;
-    --tag-foreground: #fceefe;
-    --scrollbar: #d6d7d9;
+    --ignore: #c7b79e;
+    --tag: #c1712f;
+    --tag-foreground: #fff3e4;
+    --scrollbar: #dccbae;
 
-    --popover: hsl(0 0% 100%);
-    --popover-foreground: hsl(222.2 47.4% 11.2%);
+    --popover: #fbf6ec;
+    --popover-foreground: #33261c;
 
-    --muted: hsl(210 40% 96.1%);
-    --muted-foreground: hsl(215.4 16.3% 46.9%);
+    --muted: hsl(35, 30%, 92%);
+    --muted-foreground: #8a7a66;
 
-    --card: hsl(0 0% 100%);
-    --card-foreground: hsl(222.2 47.4% 11.2%);
+    --card: #fffcf5;
+    --card-foreground: #33261c;
 
-    --border: #E7E7E5;
-    --input: hsl(214.3 31.8% 91.4%);
+    --border: #e6d8bf;
+    --input: hsl(35, 25%, 88%);
 
-    --primary: black;
-    --primary-foreground: hsl(210 40% 98%);
+    --primary: #b5541f;
+    --primary-foreground: #fff8ee;
 
-    --secondary: hsl(253, 53%, 59%);
-    --secondary-foreground: hsl(210 40% 98%);
+    --secondary: hsl(28, 55%, 45%);
+    --secondary-foreground: hsl(40, 60%, 97%);
 
-    --accent: hsl(240, 5%, 96%);
-    --accent-foreground: hsl(222.2 47.4% 11.2%);
+    --accent: hsl(35, 40%, 90%);
+    --accent-foreground: #33261c;
 
     --destructive: hsl(0 100% 50%);
     --destructive-foreground: hsl(210 40% 98%);
 
-    --ring: hsl(215 20.2% 65.1%);
+    --ring: hsl(30, 25%, 65%);
 
-    --header: rgb(249 250 251 / 0.9);
+    --header: rgb(251 246 236 / 0.9);
 
     --radius: 0.5rem;
 
-    --md-editor-bg: #fff;
-    --md-editor-text: hsl(222.2 47.4% 11.2%);
-    --md-editor-separator: #bcbcbe;
-    --md-editor-border: #e5e7eb;
-    --shadow: 1px 1px 7px 3px #b1b1b142;
+    --md-editor-bg: #fffcf5;
+    --md-editor-text: #33261c;
+    --md-editor-separator: #d9c9ac;
+    --md-editor-border: #e6d8bf;
+    --shadow: 1px 1px 7px 3px #6b4f2733;
   }
 
   .dark {
     --swiper-3d-shadow: rgb(241 241 241 / 15%);
-    --background: #0B0B0C;
-    --foreground: #E1E1E1;
-    --secondbackground: #1C1C1E;
+    --background: #1c1611;
+    --foreground: #ede0cb;
+    --secondbackground: #241c15;
 
-    --hover: #292929;
-    --hover-foreground: hsl(215.4 16.3% 46.9%);
+    --hover: #33281c;
+    --hover-foreground: #b3a186;
 
-    --muted: hsl(224, 20%, 19%);
-    --muted-foreground: hsl(215.4 16.3% 56.9%);
+    --muted: hsl(30, 20%, 20%);
+    --muted-foreground: #b3a186;
 
-    --desc: #999999;
-    --ignore: #6d6d6d;
-    --tag: #c35af7;
-    --tag-foreground: #1b1b1b;
+    --desc: #a8977e;
+    --ignore: #6d5d48;
+    --tag: #d98a3d;
+    --tag-foreground: #241c15;
 
-    --scrollbar: #1b1b1b;
+    --scrollbar: #2a2117;
 
-    --popover: hsl(224 71% 4%);
-    --popover-foreground: hsl(215 20.2% 65.1%);
+    --popover: #1c1611;
+    --popover-foreground: #ede0cb;
 
-    --card: hsl(224 71% 4%);
-    --card-foreground: hsl(213 31% 91%);
+    --card: #201911;
+    --card-foreground: #ede0cb;
 
-    --border: #0b0b0c;
-    --input: hsl(216 34% 17%);
+    --border: #1c1611;
+    --input: hsl(30, 20%, 22%);
 
-    --primary: #f9f9f9;
-    --primary-foreground: hsl(0, 0%, 0%);
+    --primary: #e8b074;
+    --primary-foreground: #241a10;
 
-    --secondary: hsl(253, 53%, 59%);
-    --secondary-foreground: hsl(210 40% 98%);
+    --secondary: hsl(28, 55%, 55%);
+    --secondary-foreground: hsl(30, 40%, 12%);
 
-    --accent: hsl(214, 9%, 15%);
-    --accent-foreground: hsl(210 40% 98%);
+    --accent: hsl(30, 20%, 18%);
+    --accent-foreground: #ede0cb;
 
     --destructive: hsl(0 63% 31%);
     --destructive-foreground: hsl(210 40% 98%);
 
-    --ring: hsl(216 34% 17%);
+    --ring: hsl(30, 20%, 30%);
 
-    --header: rgba(0, 0, 0, 0.8);
+    --header: rgba(28, 22, 17, 0.85);
 
     --radius: 0.5rem;
 
-    --md-editor-bg: #09090b;
-    --md-editor-text: hsl(210 40% 98%);
-    --md-editor-separator: #4b4b4d;
-    --md-editor-border: #27272a;
-    --shadow: 0 0 1px 1px #303030;
+    --md-editor-bg: #1c1611;
+    --md-editor-text: #ede0cb;
+    --md-editor-separator: #4a3c2c;
+    --md-editor-border: #332822;
+    --shadow: 0 0 1px 1px #1a120a80;
   }
 }
 
 .glass-effect {
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(251, 246, 236, 0.85);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }
 
 .dark .glass-effect {
-  background: rgba(11, 11, 12, 0.8);
+  background: rgba(28, 22, 17, 0.8);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
 }

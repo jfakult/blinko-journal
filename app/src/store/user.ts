@@ -291,17 +291,20 @@ export class UserStore implements Store {
         lightElement.style.setProperty('--primary-foreground', config.themeForegroundColor)
       }
     } else {
+      // CUSTOM-JOURNAL: warm amber/terracotta defaults instead of stock black/white,
+      // since these hardcoded fallbacks override the --primary CSS vars in globals.css
+      // at runtime whenever no themeColor/themeForegroundColor is set in the DB config.
       if (darkElement) {
         //@ts-ignore
-        darkElement.style.setProperty('--primary', '#f9f9f9')
+        darkElement.style.setProperty('--primary', '#e8b074')
         //@ts-ignore
-        darkElement.style.setProperty('--primary-foreground', '#000000')
+        darkElement.style.setProperty('--primary-foreground', '#241a10')
       }
       if (lightElement) {
         //@ts-ignore
-        lightElement.style.setProperty('--primary', '#000000')
+        lightElement.style.setProperty('--primary', '#b5541f')
         //@ts-ignore
-        lightElement.style.setProperty('--primary-foreground', 'hsl(210 40% 98%)')
+        lightElement.style.setProperty('--primary-foreground', '#fff8ee')
       }
     }
 

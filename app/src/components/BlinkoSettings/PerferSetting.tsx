@@ -65,20 +65,22 @@ export const PerferSetting = observer(() => {
             value: foreground
           }))
 
+          // CUSTOM-JOURNAL: warm amber/terracotta fallbacks (matching store/user.ts)
+          // instead of stock black/white, used when the admin clears the color picker.
           const darkElement = document.querySelector('.dark')
           if (darkElement) {
             //@ts-ignore
-            darkElement.style.setProperty('--primary', background || "#f9f9f9")
+            darkElement.style.setProperty('--primary', background || "#e8b074")
             //@ts-ignore
-            darkElement.style.setProperty('--primary-foreground', foreground || "#000000")
+            darkElement.style.setProperty('--primary-foreground', foreground || "#241a10")
           }
 
           const lightElement = document.querySelector('.light')
           if (lightElement) {
             //@ts-ignore
-            lightElement.style.setProperty('--primary', background || "black")
+            lightElement.style.setProperty('--primary', background || "#b5541f")
             //@ts-ignore
-            lightElement.style.setProperty('--primary-foreground', foreground || "hsl(210 40% 98%)")
+            lightElement.style.setProperty('--primary-foreground', foreground || "#fff8ee")
           }
         }}
       />} />
