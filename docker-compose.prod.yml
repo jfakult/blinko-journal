@@ -1,6 +1,14 @@
-networks:
-  blinko-network:
-    driver: host
+# NOTE (Workstream 7 / network hardening): the network topology for this
+# stack lives in docker-compose.network.yml, applied as an overlay:
+#   docker compose -f docker-compose.prod.yml -f docker-compose.network.yml up -d
+# The `blinko-network` / `driver: host` block that used to live here was
+# unused (no service actually attached to it -- see the commented-out
+# `networks:` lines below) and, if it ever *had* been attached, `driver:
+# host` would have put containers directly on the host's network namespace
+# with no isolation at all -- the opposite of what this stack needs. It's
+# removed rather than fixed in place; see docs/workstreams/07-network-hardening.md
+# for the real network design and why blinko-website/postgres/whisper are
+# split across an internal-only network and a narrow LAN-egress network.
 
 services:
   blinko-website:
@@ -30,9 +38,10 @@ services:
       interval: 30s 
       timeout: 10s   
       retries: 5     
-      start_period: 30s 
-    # networks:
-    #   - blinko-network
+      start_period: 30s
+    # networks: attached by docker-compose.network.yml (blinko-internal,
+    # blinko-egress) -- do not add a `networks:` block here, it would
+    # bypass the hardening overlay.
 
   # postgres:
   #   image: postgres:14
@@ -55,5 +64,5 @@ services:
   #     interval: 5s
   #     timeout: 10s
   #     retries: 5
-  #   networks:
-  #     - blinko-network
+  #   # networks: attached by docker-compose.network.yml (blinko-internal
+  #   # only -- postgres never needs LAN/internet egress).
