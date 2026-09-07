@@ -2,6 +2,8 @@
 
 > Committed verbatim from the original brief given to the AI session that scaffolded this fork, so the context travels with the repo instead of living only in a chat transcript. See `docs/workstreams/` for per-branch findings and `README.md` for the branch map and how to sync from upstream.
 
+> **Correction (post-brief):** the "family and friends" / multi-account framing below was included in the original brief by accident. This is actually a **single-user personal journal** — one person, one Pocket-ID login, no account sharing. See [docs/workstreams/00-multi-user-model.md](workstreams/00-multi-user-model.md) for the full resolution. Everything else in this brief (voice-first capture, transcription, tagging, search, analytics, deploy pipeline) still applies as written — only the sharing/multi-account angle is void.
+
 Paste this whole document into the orchestrator. It is self-contained — no other context is assumed.
 
 ## 1. What we're building
