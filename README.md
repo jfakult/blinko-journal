@@ -1,3 +1,37 @@
+# blinko-journal — fork notes
+
+This is a fork of [blinkospace/blinko](https://github.com/blinkospace/blinko), customized into a private, self-hosted, voice-first journal for family/friends. Full requirements and design decisions live in [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md). Per-branch research findings live in [docs/workstreams/](docs/workstreams/).
+
+Deployed at `fakult.net/journal`, on a home Unraid server, with SSO via Pocket-ID (`sso.fakult.net`). Everything else below this section is the original upstream README, kept as-is for reference.
+
+## Branch map
+
+Work is split into one branch per workstream, all off `main`, built to merge back into `main` once done (a GitHub Action then builds/pushes the image to `ghcr.io` — see `docs/PROJECT_BRIEF.md` §5):
+
+| Branch | Workstream |
+|---|---|
+| `docs/multi-user-model` | WS0 — sharing/multi-user model (docs only, see [findings](docs/workstreams/00-multi-user-model.md)) |
+| `infra/deploy-pipeline` | WS1 — fork/CI/Docker/SSO wiring |
+| `infra/whisper-service` | WS2 — self-hosted transcription service |
+| `feature/voice-capture` | WS3 — voice-first entry creation UX |
+| `config/ai-pipeline` | WS4 — AI tagging, RAG search, location config |
+| `feature/ui-reskin` | WS5 — warm theme + journal copy |
+| `feature/ui-declutter` | WS6 — hide irrelevant nav/features |
+| `infra/network-hardening` | WS7 — network isolation |
+| `feature/analytics-view` | WS8 — locations/moods/trends dashboard |
+
+Core-file changes that couldn't be done via the plugin system are marked `// CUSTOM-JOURNAL:` inline, so they're easy to spot during upstream merges.
+
+## Syncing from upstream
+
+```bash
+scripts/check-upstream.sh          # see how far a branch has drifted, no merge
+scripts/sync-upstream.sh [branch]  # fetch + merge upstream/main into a branch (default: current)
+```
+
+`upstream` remote = `https://github.com/blinkospace/blinko.git`.
+
+---
 
 <img style="border-radius:20px;margin-bottom:20px" src="./app/public/home.png" alt="Blinko" />
 
