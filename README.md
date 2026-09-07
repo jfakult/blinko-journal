@@ -1,6 +1,6 @@
 # blinko-journal — fork notes
 
-This is a fork of [blinkospace/blinko](https://github.com/blinkospace/blinko), customized into a private, self-hosted, voice-first personal journal (single user — the original brief's "family/friends" framing was a mistake, see [docs/workstreams/00-multi-user-model.md](docs/workstreams/00-multi-user-model.md)). Full requirements and design decisions live in [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md). Per-branch research findings live in [docs/workstreams/](docs/workstreams/).
+This is a fork of [blinkospace/blinko](https://github.com/blinkospace/blinko), customized into a private, self-hosted, voice-first personal journal. Full requirements and design decisions live in [docs/PROJECT_BRIEF.md](docs/PROJECT_BRIEF.md). Per-branch research findings live in [docs/workstreams/](docs/workstreams/).
 
 Deployed at `fakult.net/journal`, on a home Unraid server, with SSO via Pocket-ID (`sso.fakult.net`). Everything else below this section is the original upstream README, kept as-is for reference.
 
@@ -10,7 +10,6 @@ Work is split into one branch per workstream, all off `main`, built to merge bac
 
 | Branch | Workstream |
 |---|---|
-| `docs/multi-user-model` | WS0 — sharing/multi-user model (docs only, see [findings](docs/workstreams/00-multi-user-model.md)) |
 | `infra/deploy-pipeline` | WS1 — fork/CI/Docker/SSO wiring |
 | `infra/whisper-service` | WS2 — self-hosted transcription service |
 | `feature/voice-capture` | WS3 — voice-first entry creation UX |
