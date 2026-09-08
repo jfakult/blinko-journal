@@ -3,6 +3,7 @@ import { initReactI18next } from 'react-i18next';
 
 import Backend from 'i18next-http-backend';
 import LanguageDetector from 'i18next-browser-languagedetector';
+import { withBasePath } from './basePath';
 
 i18n
   // load translation using http -> see /public/locales (i.e. https://github.com/i18next/react-i18next/tree/master/example/react/public/locales)
@@ -23,7 +24,12 @@ i18n
       escapeValue: false, // not needed for react as it escapes by default
     },
     backend: {
-      loadPath: '/locales/{{lng}}/{{ns}}.json', // 翻译文件路径
+      // CUSTOM-JOURNAL: was a hardcoded absolute path, bypassing the subpath prefix
+      // (same bug class as withBasePath('') for vditor's CDN root) - under /journal
+      // this fetched https://fakult.net/locales/en/translation.json (404), leaving
+      // i18next with no loaded resources, so it fell back to rendering raw keys
+      // ("basic-information", "blinko", ...) instead of the translated strings.
+      loadPath: withBasePath('/locales/{{lng}}/{{ns}}.json'),
     },
     detection: {
       order: ['querystring', 'cookie', 'localStorage', 'navigator', 'htmlTag'],
