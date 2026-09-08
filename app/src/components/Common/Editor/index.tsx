@@ -14,7 +14,6 @@ import { Card, Popover, PopoverTrigger, PopoverContent } from '@heroui/react';
 import { AttachmentsRender, ReferenceRender } from '../AttachmentRender';
 import { UploadButtons } from './Toolbar/UploadButtons';
 import { ReferenceButton } from './Toolbar/ReferenceButton';
-import { NoteTypeButton } from './Toolbar/NoteTypeButton';
 import { HashtagButton } from './Toolbar/HashtagButton';
 import { ViewModeButton } from './Toolbar/ViewModeButton';
 import { SendButton } from './Toolbar/SendButton';
@@ -76,12 +75,9 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
     if (!hiddenToolbar) {
       return (
         <>
-          <NoteTypeButton
-            noteType={store.noteType}
-            setNoteType={(noteType) => {
-              store.noteType = noteType
-            }}
-          />
+          {/* CUSTOM-JOURNAL: this journal only uses NoteType.NOTE (see baseStore.ts routerList
+              and useEditor.ts's create-mode default) - the per-entry type toggle is removed
+              entirely rather than hidden, since there's no other type to switch to. */}
           <HashtagButton store={store} content={content} />
           <ReferenceButton store={store} />
           <ResourceReferenceButton store={store} />

@@ -13,6 +13,7 @@ interface UploadAction {
   title: string;
   onClick: () => void;
   showCondition?: boolean;
+  classNames?: { base?: string; icon?: string };
 }
 
 interface Props {
@@ -51,6 +52,10 @@ export const UploadButtons = ({ getInputProps, open, onFileUpload }: Props) => {
       title: t('recording'),
       onClick: () => ShowAudioDialog((file) => onFileUpload([file])),
       showCondition: blinko.showAi,
+      // CUSTOM-JOURNAL: voice is the primary entry method for this journal - stand this
+      // button out from the rest of the (visually uniform) toolbar row instead of it
+      // reading as just another small icon.
+      classNames: { base: '!bg-primary hover:!bg-primary/80', icon: '!text-primary-foreground' },
     },
     // {
     //   key: 'camera',
@@ -70,10 +75,11 @@ export const UploadButtons = ({ getInputProps, open, onFileUpload }: Props) => {
             icon={action.icon}
             tooltip={action.title}
             onClick={action.onClick}
+            classNames={action.classNames}
           >
             {action.key === 'file' && <input {...getInputProps()} />}
           </IconButton>
         ))}
     </>
   );
-}; 
+};
