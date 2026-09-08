@@ -20,6 +20,10 @@ services:
       NEXT_PUBLIC_BASE_URL: https://fakult.net/journal
       NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
       DATABASE_URL: postgresql://postgres:mysecretpassword@192.168.31.69:5435/postgres
+      # CUSTOM-JOURNAL: see prisma/seed.ts's seedDefaultAiConfig - self-heals the
+      # placeholder Ollama baseURL on next boot once this is set.
+      OLLAMA_BASE_URL: http://192.168.1.208:11434
+      # WHISPER_BASE_URL: http://192.168.1.208:8000/v1  # uncomment once deployed (infra/whisper-service)
     # depends_on:
     #   postgres:
     #     condition: service_healthy

@@ -24,6 +24,13 @@ services:
       NEXT_PUBLIC_BASE_URL: http://localhost:1111
       NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
       DATABASE_URL: postgresql://postgres:mysecretpassword@postgres:5432/postgres
+      # CUSTOM-JOURNAL: real Ollama address (compute VM) - see prisma/seed.ts's
+      # seedDefaultAiConfig, which self-heals the placeholder baseURL on next boot
+      # once this is set. Not up yet as of this writing, so chat/tagging/embeddings/
+      # vision won't actually work until that VM is running - config-wise this is
+      # already correct and ready.
+      OLLAMA_BASE_URL: http://192.168.1.208:11434
+      # WHISPER_BASE_URL: http://192.168.1.208:8000/v1  # uncomment once deployed (infra/whisper-service)
     depends_on:
       postgres:
         condition: service_healthy

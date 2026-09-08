@@ -102,103 +102,128 @@ async function main() {
 }
 
 /**
- * CUSTOM-JOURNAL: seed a default local-Ollama AI configuration (chat +
- * auto-tagging + embeddings) so a fresh deploy of this fork doesn't start
- * with AI features completely unconfigured.
+ * CUSTOM-JOURNAL: seed/self-heal the local AI configuration (chat +
+ * auto-tagging + embeddings + vision + voice transcription) so this fork's
+ * AI features come up configured without manual DB surgery, and so
+ * incremental infra rollout (Ollama today, Whisper "later") self-completes
+ * on a later restart instead of needing a one-off fix each time.
  *
- * Safety: this ONLY runs when the `aiProviders` table is empty. Once an
- * admin has configured any provider (via this seed or by hand in
- * Settings > AI), this function is a no-op on every subsequent container
- * start (the dockerfile runs `node server/seed.js` on every boot).
+ * Unlike the old all-or-nothing version, every piece below is checked and
+ * created/repaired independently — this runs on every boot (the dockerfile
+ * runs `node server/seed.js` every start) and is safe to run repeatedly:
+ * anything already correctly configured is left alone, anything missing or
+ * still holding the placeholder value gets created/fixed.
  *
- * IMPORTANT — placeholder values that MUST be reviewed after deploy:
- * - OLLAMA_BASE_URL: this repo has no visibility into the Unraid host's
- *   actual Ollama address. Defaults to an intentionally-invalid
- *   placeholder so it fails loudly instead of silently pointing at
- *   nothing. Set the OLLAMA_BASE_URL env var (e.g. `http://ollama:11434`
- *   if Blinko and Ollama share a Docker network, or
- *   `http://<unraid-lan-ip>:11434` otherwise) in docker-compose before
- *   first boot, or edit the value later in Settings > AI > Providers.
- * - OLLAMA_CHAT_MODEL / OLLAMA_EMBEDDING_MODEL: default to commonly-used
- *   Ollama model tags ('llama3.1' / 'nomic-embed-text'). These must
- *   actually be pulled on the target Ollama instance
- *   (`ollama pull llama3.1`, `ollama pull nomic-embed-text`) or requests
- *   will fail. Override via env vars if different models are preferred.
+ * Env vars:
+ * - OLLAMA_BASE_URL (required to actually work) — e.g. http://192.168.1.208:11434.
+ *   If the existing provider row still has the placeholder host and this is
+ *   now set, it gets corrected in place.
+ * - OLLAMA_CHAT_MODEL / OLLAMA_EMBEDDING_MODEL / OLLAMA_VISION_MODEL —
+ *   default 'llama3.1' / 'nomic-embed-text' / 'llava'. Must actually be
+ *   pulled on the target Ollama instance (`ollama pull <model>`).
+ * - WHISPER_BASE_URL (optional) — e.g. http://192.168.1.208:8000/v1. Only
+ *   when this is set does the Whisper provider/model get created and
+ *   voiceModelId get wired up — safe to leave unset until that service is
+ *   actually deployed, and setting it later + restarting is enough to
+ *   finish the setup then, no code changes needed.
  */
 async function seedDefaultAiConfig() {
-  const existingProviderCount = await prisma.aiProviders.count();
-  if (existingProviderCount > 0) {
-    console.log('ℹ AI providers already configured, skipping default AI config seed.');
-    return;
+  const PLACEHOLDER_HOST = 'REPLACE_WITH_OLLAMA_HOST';
+
+  const setConfigIfMissing = async (key: string, value: any) => {
+    const existing = await prisma.config.findFirst({ where: { key, userId: null } });
+    if (existing) return;
+    await prisma.config.create({ data: { key, config: { type: typeof value, value } } });
+    console.log(`   config.${key} = ${JSON.stringify(value)}`);
+  };
+
+  // --- Ollama provider (chat + embeddings + vision) ---
+  let ollamaProvider = await prisma.aiProviders.findFirst({ where: { provider: 'ollama' } });
+  const ollamaBaseURL = process.env.OLLAMA_BASE_URL;
+
+  if (!ollamaProvider) {
+    const baseURL = ollamaBaseURL || `http://${PLACEHOLDER_HOST}:11434`;
+    if (!ollamaBaseURL) {
+      console.warn(`⚠ OLLAMA_BASE_URL not set — seeding Ollama provider with placeholder "${baseURL}" (won't work until corrected).`);
+    }
+    console.log('🤖 Seeding Ollama AI provider...');
+    ollamaProvider = await prisma.aiProviders.create({
+      data: { title: 'Ollama (local, journal default)', provider: 'ollama', baseURL, apiKey: null, sortOrder: 0 },
+    });
+  } else if (ollamaBaseURL && ollamaProvider.baseURL?.includes(PLACEHOLDER_HOST)) {
+    console.log(`🔧 Correcting Ollama provider baseURL: ${ollamaProvider.baseURL} -> ${ollamaBaseURL}`);
+    ollamaProvider = await prisma.aiProviders.update({ where: { id: ollamaProvider.id }, data: { baseURL: ollamaBaseURL } });
   }
 
-  const ollamaBaseURL = process.env.OLLAMA_BASE_URL || 'http://REPLACE_WITH_OLLAMA_HOST:11434';
   const chatModelKey = process.env.OLLAMA_CHAT_MODEL || 'llama3.1';
-  const embeddingModelKey = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
-
-  if (!process.env.OLLAMA_BASE_URL) {
-    console.warn(
-      '⚠ OLLAMA_BASE_URL is not set. Seeding AI provider with placeholder ' +
-      `baseURL "${ollamaBaseURL}" — chat, auto-tagging, and embeddings will ` +
-      'NOT work until this is corrected in Settings > AI > Providers, or ' +
-      'OLLAMA_BASE_URL is set before the container first starts.'
-    );
+  let chatModel = await prisma.aiModels.findFirst({ where: { providerId: ollamaProvider.id, modelKey: chatModelKey } });
+  if (!chatModel) {
+    chatModel = await prisma.aiModels.create({
+      data: {
+        providerId: ollamaProvider.id, title: `Ollama Chat (${chatModelKey})`, modelKey: chatModelKey, sortOrder: 0,
+        capabilities: { inference: true, tools: true, image: false, imageGeneration: false, video: false, audio: false, embedding: false, rerank: false },
+      },
+    });
   }
+  await setConfigIfMissing('mainModelId', chatModel.id);
 
-  console.log('🤖 Seeding default Ollama AI provider + models...');
-
-  const provider = await prisma.aiProviders.create({
-    data: {
-      title: 'Ollama (local, journal default)',
-      provider: 'ollama',
-      baseURL: ollamaBaseURL,
-      apiKey: null,
-      sortOrder: 0,
-    },
-  });
-
-  const chatModel = await prisma.aiModels.create({
-    data: {
-      providerId: provider.id,
-      title: `Ollama Chat (${chatModelKey})`,
-      modelKey: chatModelKey,
-      capabilities: {
-        inference: true,
-        tools: true,
-        image: false,
-        imageGeneration: false,
-        video: false,
-        audio: false,
-        embedding: false,
-        rerank: false,
+  const embeddingModelKey = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
+  let embeddingModel = await prisma.aiModels.findFirst({ where: { providerId: ollamaProvider.id, modelKey: embeddingModelKey } });
+  if (!embeddingModel) {
+    // NOTE: Ollama's embedding baseURL is used as-is by Blinko's embedding provider
+    // (unlike the chat/LLM provider, which auto-appends /api). If embeddings 404,
+    // try OLLAMA_BASE_URL with an /api suffix instead.
+    embeddingModel = await prisma.aiModels.create({
+      data: {
+        providerId: ollamaProvider.id, title: `Ollama Embeddings (${embeddingModelKey})`, modelKey: embeddingModelKey, sortOrder: 1,
+        capabilities: { inference: false, tools: false, image: false, imageGeneration: false, video: false, audio: false, embedding: true, rerank: false },
       },
-      sortOrder: 0,
-    },
-  });
+    });
+  }
+  await setConfigIfMissing('embeddingModelId', embeddingModel.id);
 
-  // NOTE: Ollama's embedding baseURL is used as-is by Blinko's embedding
-  // provider (unlike the chat/LLM provider, which auto-appends `/api`).
-  // If embeddings fail with a 404, try setting OLLAMA_BASE_URL to include
-  // the `/api` suffix (e.g. `http://ollama:11434/api`) — verify against
-  // the actual `ollama-ai-provider` version in use once deployed.
-  const embeddingModel = await prisma.aiModels.create({
-    data: {
-      providerId: provider.id,
-      title: `Ollama Embeddings (${embeddingModelKey})`,
-      modelKey: embeddingModelKey,
-      capabilities: {
-        inference: false,
-        tools: false,
-        image: false,
-        imageGeneration: false,
-        video: false,
-        audio: false,
-        embedding: true,
-        rerank: false,
+  // Vision model — describes/tags photo attachments (imageModelId).
+  const visionModelKey = process.env.OLLAMA_VISION_MODEL || 'llava';
+  let visionModel = await prisma.aiModels.findFirst({ where: { providerId: ollamaProvider.id, modelKey: visionModelKey } });
+  if (!visionModel) {
+    visionModel = await prisma.aiModels.create({
+      data: {
+        providerId: ollamaProvider.id, title: `Ollama Vision (${visionModelKey})`, modelKey: visionModelKey, sortOrder: 2,
+        capabilities: { inference: true, tools: false, image: true, imageGeneration: false, video: false, audio: false, embedding: false, rerank: false },
       },
-      sortOrder: 1,
-    },
-  });
+    });
+  }
+  await setConfigIfMissing('imageModelId', visionModel.id);
+
+  // --- Whisper provider (voice transcription) — only if actually deployed ---
+  const whisperBaseURL = process.env.WHISPER_BASE_URL;
+  if (whisperBaseURL) {
+    let whisperProvider = await prisma.aiProviders.findFirst({ where: { title: 'Whisper (local, journal default)' } });
+    if (!whisperProvider) {
+      console.log('🎙️ Seeding Whisper AI provider...');
+      whisperProvider = await prisma.aiProviders.create({
+        // OpenAI-compatible custom provider — speaches/faster-whisper-server expose
+        // an OpenAI-shaped /v1/audio/transcriptions endpoint (see infra/whisper-service).
+        data: { title: 'Whisper (local, journal default)', provider: 'openai', baseURL: whisperBaseURL, apiKey: null, sortOrder: 1 },
+      });
+    } else if (whisperProvider.baseURL !== whisperBaseURL) {
+      whisperProvider = await prisma.aiProviders.update({ where: { id: whisperProvider.id }, data: { baseURL: whisperBaseURL } });
+    }
+
+    const whisperModelKey = process.env.WHISPER_MODEL || 'Systran/faster-whisper-medium';
+    let voiceModel = await prisma.aiModels.findFirst({ where: { providerId: whisperProvider.id, modelKey: whisperModelKey } });
+    if (!voiceModel) {
+      voiceModel = await prisma.aiModels.create({
+        data: {
+          providerId: whisperProvider.id, title: `Whisper (${whisperModelKey})`, modelKey: whisperModelKey, sortOrder: 0,
+          capabilities: { inference: false, tools: false, image: false, imageGeneration: false, video: false, audio: true, embedding: false, rerank: false },
+        },
+      });
+    }
+    await setConfigIfMissing('voiceModelId', voiceModel.id);
+  } else {
+    console.log('ℹ WHISPER_BASE_URL not set — skipping voice transcription setup (voiceModelId left unconfigured). Set it and restart once the Whisper service is deployed.');
+  }
 
   const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture who, where, how the writer felt, and what kind of occasion this was. Rules:
 1. **Categories to draw from**: people mentioned (by name or relationship, e.g. #people/mom, #people/sarah), places (e.g. #places/home, #places/lake-house), mood or emotional tone (e.g. #mood/grateful, #mood/anxious, #mood/excited, #mood/tired), and occasion or event type (e.g. #occasion/birthday, #occasion/milestone, #occasion/everyday, #occasion/trip).
@@ -208,22 +233,11 @@ async function seedDefaultAiConfig() {
 5. **Language**: match the language of the entry.
 6. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #people/mom,#places/home,#mood/grateful,#occasion/everyday`;
 
-  const globalConfigDefaults: Record<string, any> = {
-    mainModelId: chatModel.id,
-    embeddingModelId: embeddingModel.id,
-    isUseAiPostProcessing: true,
-    aiPostProcessingMode: 'tags',
-    aiTagsPrompt: journalTagsPrompt,
-  };
+  await setConfigIfMissing('isUseAiPostProcessing', true);
+  await setConfigIfMissing('aiPostProcessingMode', 'tags');
+  await setConfigIfMissing('aiTagsPrompt', journalTagsPrompt);
 
-  for (const [key, value] of Object.entries(globalConfigDefaults)) {
-    await prisma.config.create({
-      data: { key, config: { type: typeof value, value } },
-    });
-  }
-
-  console.log('✅ Default Ollama AI config seeded (chat + auto-tagging + embeddings).');
-  console.log(`   Provider baseURL: ${ollamaBaseURL} (verify this is correct!)`);
+  console.log('✅ AI config seed/self-heal pass complete.');
 }
 
 export async function seedDefaultFonts() {
