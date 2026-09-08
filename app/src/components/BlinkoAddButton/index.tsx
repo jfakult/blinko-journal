@@ -9,11 +9,13 @@ import { eventBus } from '@/lib/event';
 export const BlinkoAddButton = observer(() => {
   const ICON_SIZE = {
     ACTION: 16,    // Icon size for action buttons
-    CENTER: 26     // Icon size for center button
+    CENTER: 26,    // Icon size for center button
+    RECORD: 22     // CUSTOM-JOURNAL: icon size for the always-visible voice record button
   };
   const BUTTON_SIZE = {
     ACTION: 35,    // Size for action buttons
-    CENTER: 50     // Size for center button
+    CENTER: 50,    // Size for center button
+    RECORD: 44     // CUSTOM-JOURNAL: size for the always-visible voice record button
   };
   const [isDragging, setIsDragging] = useState(false);
   const [isLongPressing, setIsLongPressing] = useState(false);
@@ -63,14 +65,50 @@ export const BlinkoAddButton = observer(() => {
     setIsLongPressing(false);
   };
 
-  return (<div style={{
-    width: BUTTON_SIZE.CENTER,
-    height: BUTTON_SIZE.CENTER,
-    position: 'fixed',
-    right: 40,
-    bottom: 110,
-    zIndex: 50
-  }}>
+  return (<>
+    {/*
+      CUSTOM-JOURNAL: always-visible voice record button.
+      The original recording entry point (long-press on the "+" button below) requires
+      an undiscoverable 800ms hold gesture with no visible hint that it exists - see
+      docs/workstreams/03-voice-capture.md for the full assessment. The plugin API's
+      addToolBarIcon only renders inside the note editor's toolbar (not on this landing
+      screen), so it can't add a real landing-page action here - a small, isolated
+      core patch was the only way to reach this surface. This button is a second,
+      always-visible, single-tap affordance so a first-time user can record without
+      being told the long-press exists. The long-press shortcut on the "+" button is
+      left in place unchanged, for muscle memory / no regression.
+    */}
+    <motion.button
+      type="button"
+      aria-label="Record a voice entry"
+      title="Record a voice entry"
+      onClick={handleAudioRecording}
+      whileTap={{ scale: 0.85 }}
+      whileHover={{ scale: 1.05, boxShadow: '0 0 16px 4px rgba(255, 107, 107, 0.7)' }}
+      transition={{ type: "spring", stiffness: 400, damping: 15 }}
+      className="flex items-center justify-center text-white rounded-full cursor-pointer"
+      style={{
+        width: BUTTON_SIZE.RECORD,
+        height: BUTTON_SIZE.RECORD,
+        position: 'fixed',
+        right: 40 + (BUTTON_SIZE.CENTER - BUTTON_SIZE.RECORD) / 2,
+        bottom: 110 + BUTTON_SIZE.CENTER + 16,
+        zIndex: 50,
+        background: '#FF6B6B',
+        border: 'none',
+        boxShadow: '0 0 10px 2px rgba(255, 107, 107, 0.5)'
+      }}
+    >
+      <Icon icon="solar:microphone-3-bold" width={ICON_SIZE.RECORD} height={ICON_SIZE.RECORD} />
+    </motion.button>
+    <div style={{
+      width: BUTTON_SIZE.CENTER,
+      height: BUTTON_SIZE.CENTER,
+      position: 'fixed',
+      right: 40,
+      bottom: 110,
+      zIndex: 50
+    }}>
     <motion.div
       onMouseDown={handleMouseDown}
       onMouseUp={handleMouseUp}
@@ -124,6 +162,7 @@ export const BlinkoAddButton = observer(() => {
         />
       </motion.div>
     </motion.div>
-  </div>
+    </div>
+  </>
   );
 });
