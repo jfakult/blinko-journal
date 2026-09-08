@@ -2,6 +2,7 @@ node_modules
 .idea
 .DS_Store
 dist-ssr
+plugins/*/release
 *.local
 .vscode
 out

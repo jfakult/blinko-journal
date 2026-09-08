@@ -42,7 +42,7 @@ interface BlinkoPlugin {
 export default class JournalDeclutterPlugin implements BlinkoPlugin {
   name = 'journal-declutter';
   author = 'jfakult15';
-  url = 'https://github.com/REPLACE_ME/blinko-journal';
+  url = 'https://github.com/jfakult/blinko-journal';
   version = '1.0.0';
   displayName: I18nString = { default: 'Journal Declutter' };
   description: I18nString = {

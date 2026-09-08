@@ -368,6 +368,13 @@ async function bootstrap() {
           const servedHtml = html
             .replace('<base href="./" />', `<base href="${baseHref}" />`)
             .replace(/(\s(?:src|href)=["'])\.\//g, `$1${baseHref}`);
+          // CUSTOM-JOURNAL: index.html carries the per-request basePath injection
+          // (<base href>, config.js) - it must never be cached the way hashed static
+          // assets are (see staticOptions below), or a stale cached copy keeps serving
+          // an old/wrong basePath until the browser cache is manually cleared. This was
+          // the root cause of a "Router basename doesn't match" blank-page bug on refresh.
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
           res.type('html').send(servedHtml);
         });
       });

@@ -5,6 +5,15 @@ networks:
   blinko-network:
     driver: bridge
 
+volumes:
+  # CUSTOM-JOURNAL: neither service had a persistent volume - postgres data lived
+  # only in the container's writable layer, and .blinko/ (attachments, voice
+  # memos, installed plugins) likewise. Any container recreation (a normal,
+  # frequent part of the local dev rebuild loop) would silently wipe both.
+  # Found and fixed after backing up existing data via pg_dump + tar.
+  blinko-db:
+  blinko-files:
+
 services:
   blinko-website:
     container_name: blinko-website
@@ -38,11 +47,15 @@ services:
     ports:
       - 1111:1111
     healthcheck:
-      test: ["CMD", "wget", "--spider", "http://blinko-website:1111/journal/"]
-      interval: 30s 
-      timeout: 10s  
+      # CUSTOM-JOURNAL: was checking /journal/, which doesn't exist on this
+      # root-deployment local dev compose (no subpath here) - fixed to match.
+      test: ["CMD", "wget", "--spider", "http://blinko-website:1111/"]
+      interval: 30s
+      timeout: 10s
       retries: 5
       start_period: 30s
+    volumes:
+      - blinko-files:/app/.blinko
     networks:
       - blinko-network
 
@@ -62,5 +75,7 @@ services:
       interval: 5s
       timeout: 10s
       retries: 5
+    volumes:
+      - blinko-db:/var/lib/postgresql/data
     networks:
       - blinko-network

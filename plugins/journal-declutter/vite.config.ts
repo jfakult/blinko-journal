@@ -21,19 +21,34 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
+// CUSTOM-JOURNAL: this used to be a `build.lib` config with `formats: ['es']` +
+// rollupOptions.output.format: 'system' - but Vite's lib mode only accepts
+// 'es'/'cjs'/'umd'/'iife' for `formats` (not 'system'), and hard-codes ESM
+// output handling once 'es' is picked, silently ignoring the rollupOptions
+// override. The built release/index.js was plain `export {...}` ESM, not
+// SystemJS's `System.register(...)` wrapper - it would have failed to load via
+// Blinko's `System.import('/plugins/<name>/index.js')`. Using a plain
+// (non-lib) rollupOptions.input/output instead actually respects format: 'system'.
 export default defineConfig({
   build: {
     outDir: 'release',
     emptyOutDir: true,
-    lib: {
-      entry: resolve(__dirname, 'src/index.tsx'),
-      name: 'JournalDeclutterPlugin',
-      formats: ['es'],
-      fileName: () => 'index.js',
-    },
     rollupOptions: {
+      input: resolve(__dirname, 'src/index.tsx'),
+      // CUSTOM-JOURNAL: without build.lib, Rollup's default tree-shaking treats
+      // this entry's `export default class ...` as unused (nothing inside the
+      // bundle imports it - it's only ever consumed externally, by Blinko's
+      // System.import() loader) and drops it entirely ("Generated an empty
+      // chunk"). treeshake:false alone wasn't enough - it kept the class body but
+      // Rollup's getExportMode still didn't register a default export binding in
+      // the SystemJS wrapper (System.import(...).default would be undefined).
+      // preserveEntrySignatures:'strict' is the actual fix: it tells Rollup this
+      // entry's exports form a public API to preserve exactly, which both keeps
+      // the class AND correctly emits the SystemJS export() call for it.
+      preserveEntrySignatures: 'strict',
       output: {
         format: 'system',
+        entryFileNames: 'index.js',
       },
     },
   },

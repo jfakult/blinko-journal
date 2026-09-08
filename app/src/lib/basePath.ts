@@ -7,8 +7,15 @@ declare global {
 }
 
 function normalizeBasePath(path: string): string {
-  if (!path || path === '/') return '';
-  return `/${path.replace(/^\/+|\/+$/g, '')}`;
+  // CUSTOM-JOURNAL: a stale-cached index.html can still have the raw, un-rewritten
+  // `<base href="./" />` from the source file (see server/index.ts's per-request
+  // rewrite) - "./" isn't '/' so the early-return below didn't catch it, and the
+  // slash-only strip left the dot behind, producing "/." as the basename. That broke
+  // <Router basename="/."> entirely (matches nothing), blanking the app on refresh
+  // until the cache was cleared. Treat any dot-only/slash-only remainder as root.
+  const trimmed = path.replace(/^\/+|\/+$/g, '').replace(/^\.+$/, '');
+  if (!trimmed) return '';
+  return `/${trimmed}`;
 }
 
 const configuredBasePath = window.__BLINKO_CONFIG__?.basePath

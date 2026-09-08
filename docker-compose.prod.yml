@@ -19,7 +19,12 @@ services:
       NEXTAUTH_URL: https://fakult.net/journal
       NEXT_PUBLIC_BASE_URL: https://fakult.net/journal
       NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
-      DATABASE_URL: postgresql://postgres:mysecretpassword@192.168.31.69:5435/postgres
+      # CUSTOM-JOURNAL: points at the real external Postgres (192.168.1.203) rather
+      # than the earlier 192.168.31.69:5435 value. user/password below are almost
+      # certainly wrong - "mysecretpassword" was the local dev/example default
+      # carried over, not real credentials for this server. Fill in the actual
+      # username/password/database name before deploying.
+      DATABASE_URL: postgresql://postgres:mysecretpassword@192.168.1.203:5432/postgres
       # CUSTOM-JOURNAL: see prisma/seed.ts's seedDefaultAiConfig - self-heals the
       # placeholder Ollama baseURL on next boot once this is set.
       OLLAMA_BASE_URL: http://192.168.1.208:11434
@@ -27,9 +32,12 @@ services:
     # depends_on:
     #   postgres:
     #     condition: service_healthy
-    # Make sure you have enough permissions.
-    # volumes:
-      # - ~/your-name/.blinko:/app/.blinko 
+    # CUSTOM-JOURNAL: was commented out - attachments, voice memos, and installed
+    # plugins live in .blinko/ with no persistence otherwise, wiped on every
+    # container recreation (a redeploy, not just a crash). Uncommented; adjust the
+    # host path to wherever you want this backed up on the Unraid host.
+    volumes:
+      - ~/blinko-journal/.blinko:/app/.blinko
     restart: always
     logging:
       options:
