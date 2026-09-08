@@ -324,7 +324,14 @@ async function bootstrap() {
           req.url.startsWith(`${configuredBasePath}/`) ||
           req.url.startsWith(`${configuredBasePath}?`)
         ) {
-          req.url = req.url.slice(configuredBasePath.length) || '/';
+          const rest = req.url.slice(configuredBasePath.length) || '/';
+          // CUSTOM-JOURNAL: for a bare-query URL like "/journal?path=notes" (no
+          // slash before "?"), slicing off the basePath leaves "?path=notes" with
+          // no leading slash. Node's url parser then reports pathname: null for
+          // that string, which fails every downstream route match (SPA fallback,
+          // static, API routers) and surfaces as a 404 on refresh. Always keep a
+          // leading slash so req.url stays a valid path+query string.
+          req.url = rest.startsWith('/') ? rest : `/${rest}`;
         }
         next();
       });
