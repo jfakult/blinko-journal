@@ -18,6 +18,7 @@ import { ShowTwoFactorModal } from '@/components/Common/TwoFactorModal';
 import { ToastPlugin } from './module/Toast/Toast';
 import { StorageState } from './standard/StorageState';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
+import { stripBasePath } from '@/lib/basePath';
 import { isInTauri, setTauriTheme } from '@/lib/tauriHelper';
 import { FontManager } from '@/lib/fontManager';
 
@@ -354,7 +355,7 @@ export class UserStore implements Store {
         const userId = tokenData.user?.id || '';
         this.showTwoFactorDialog(userId);
       }
-      else if (location.pathname === '/signin' || location.pathname === '/signup') {
+      else if (stripBasePath(location.pathname) === '/signin' || stripBasePath(location.pathname) === '/signup') {
         navigate('/');
       }
 
@@ -365,7 +366,7 @@ export class UserStore implements Store {
       console.log('clearing user token');
       this.clear();
 
-      const pathname = location.pathname;
+      const pathname = stripBasePath(location.pathname);
       const isInitialLoad = !this.isSetup;
 
       if (pathname !== '/signin' &&
@@ -465,7 +466,7 @@ export class UserStore implements Store {
 
     useEffect(() => {
       const handleSignout = () => {
-        const pathname = location.pathname;
+        const pathname = stripBasePath(location.pathname);
         if (pathname === '/signup' || pathname.includes('/share') || pathname.includes('/ai-share') || pathname.includes('/oauth-callback')) {
           return
         }

@@ -1,22 +1,23 @@
 
+import { withBasePath } from './basePath';
 export function getBlinkoEndpoint(path: string = ''): string {
     try {
         const blinkoEndpoint = window.localStorage.getItem('blinkoEndpoint')
         const isTauri = !!(window as any).__TAURI__;
         if (isTauri && blinkoEndpoint) {
             try {
-                const url = new URL(path, blinkoEndpoint.replace(/"/g, ''));
+                const url = new URL(withBasePath(path), blinkoEndpoint.replace(/"/g, ''));
                 return url.toString();
             } catch (error) {
                 console.error(error);
-                return new URL(path, window.location.origin).toString();
+                return new URL(withBasePath(path), window.location.origin).toString();
             }
         }
 
-        return new URL(path, window.location.origin).toString();
+        return new URL(withBasePath(path), window.location.origin).toString();
     } catch (error) {
         console.error(error);
-        return new URL(path, window.location.origin).toString();
+        return new URL(withBasePath(path), window.location.origin).toString();
     }
 }
 

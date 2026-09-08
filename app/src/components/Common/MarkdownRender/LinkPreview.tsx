@@ -5,6 +5,7 @@ import { LinkInfo } from '@shared/lib/types';
 import { RootStore } from '@/store';
 import { StorageState } from '@/store/standard/StorageState';
 import { observer } from 'mobx-react-lite';
+import { withBasePath } from '@/lib/basePath';
 
 interface LinkPreviewProps {
   href: string;
@@ -68,7 +69,7 @@ export const LinkPreview = observer(({ href, text, isBlock = false }: LinkPrevie
           <div className='font-bold truncate text-sm'>{store.previewData.value?.title}</div>
           {store.previewData.value?.favicon && 
             <Image 
-              fallbackSrc="/fallback.png" 
+              fallbackSrc={withBasePath('/fallback.png')}
               className='flex-1 rounded-full ml-auto min-w-[16px]' 
               src={store.previewData.value.favicon} 
               width={16} 

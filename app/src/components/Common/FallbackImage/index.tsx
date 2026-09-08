@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Image, ImageProps } from "@heroui/react";
+import { withBasePath } from '@/lib/basePath';
 
 export const FallbackImage = ({ src, alt, className, ...props }: ImageProps) => {
     const [error, setError] = useState(false);
@@ -8,8 +9,8 @@ export const FallbackImage = ({ src, alt, className, ...props }: ImageProps) => 
     };
 
     if (error) {
-        return <Image src={'/logo.png'} alt={alt} className={className} {...props} onError={handleError}  />;
+        return <Image src={withBasePath('/logo.png')} alt={alt} className={className} {...props} onError={handleError}  />;
     }
 
-    return <Image src={src} alt={alt} className={className} {...props} onError={handleError} fallbackSrc="/logo.png" />;
+    return <Image src={src} alt={alt} className={className} {...props} onError={handleError} fallbackSrc={withBasePath('/logo.png')} />;
 }

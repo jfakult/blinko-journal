@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { signOut, navigate } from '../Auth/auth-client';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
+import { withBasePath } from '@/lib/basePath';
 
 interface UserAvatarDropdownProps {
   onItemClick?: () => void;
@@ -32,7 +33,7 @@ export const UserAvatarDropdown = observer(({ onItemClick, collapsed = false, sh
             {user.image ? (
               <img src={getBlinkoEndpoint(`${user.image}?token=${user.tokenData.value?.token}`)} alt="avatar" className={`${collapsed ? 'w-10 h-10' : 'w-8 h-8'} rounded-full object-cover transition-all`} />
             ) : (
-              <Image src="/logo.png" width={30} />
+              <Image src={withBasePath('/logo.png')} width={30} />
             )}
             <div className={`absolute inset-0 bg-black/30 rounded-full flex items-center justify-center transition-opacity ${showOverlay ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
               <Icon icon="mdi:cog" width="16" height="16" className="text-white" />

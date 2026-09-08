@@ -24,6 +24,7 @@ import { BarSearchInput } from './BarSearchInput';
 import { BlinkoNotification } from '@/components/BlinkoNotification';
 import { AiStore } from '@/store/aiStore';
 import { useLocation, useSearchParams, Link } from 'react-router-dom';
+import { stripBasePath } from '@/lib/basePath';
 
 export const SideBarItem = 'p-2 flex flex-row items-center cursor-pointer gap-2 hover:bg-hover rounded-xl !transition-all';
 
@@ -44,6 +45,7 @@ export const CommonLayout = observer(({ children, header }: { children?: React.R
   const blinkoStore = RootStore.Get(BlinkoStore);
   const base = RootStore.Get(BaseStore);
   const location = useLocation()
+  const pathname = stripBasePath(location.pathname);
   const [searchParams] = useSearchParams()
   blinkoStore.use();
   user.use();
@@ -65,16 +67,16 @@ export const CommonLayout = observer(({ children, header }: { children?: React.R
   if (!isClient) return <></>;
 
   if (
-    location.pathname == '/signin' ||
-    location.pathname == '/quicknote' ||
-    location.pathname == '/quickai' ||
-    location.pathname == '/quicktool' ||
-    location.pathname == '/signup' ||
-    location.pathname == '/api-doc' ||
-    location.pathname.includes('/share') ||
-    location.pathname == '/editor' ||
-    location.pathname == '/oauth-callback' ||
-    location.pathname.includes('/ai-share')
+    pathname == '/signin' ||
+    pathname == '/quicknote' ||
+    pathname == '/quickai' ||
+    pathname == '/quicktool' ||
+    pathname == '/signup' ||
+    pathname == '/api-doc' ||
+    pathname.includes('/share') ||
+    pathname == '/editor' ||
+    pathname == '/oauth-callback' ||
+    pathname.includes('/ai-share')
   ) {
     return <>{children}</>;
   }
@@ -126,7 +128,7 @@ export const CommonLayout = observer(({ children, header }: { children?: React.R
                 <div className="w-[4px] h-[16px] bg-primary rounded-xl hidden md:block" />
                 <div className="flex flex-row items-center gap-1">
                   <div className="font-black select-none">
-                    {location.pathname == '/ai'
+                    {pathname == '/ai'
                       ? !!RootStore.Get(AiStore).currentConversation.value?.title
                         ? RootStore.Get(AiStore).currentConversation.value?.title
                         : t(base.currentTitle)

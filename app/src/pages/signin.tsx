@@ -14,6 +14,7 @@ import { signIn } from "@/components/Auth/auth-client";
 import { useNavigate } from "react-router-dom";
 import { Link } from 'react-router-dom';
 import { saveBlinkoEndpoint, getSavedEndpoint, getBlinkoEndpoint } from "@/lib/blinkoEndpoint";
+import { withBasePath } from '@/lib/basePath';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import { BlinkoStore } from "@/store/blinkoStore";
@@ -137,7 +138,7 @@ export default function Component() {
       <div className="flex h-full w-screen items-center justify-center p-2 sm:p-4 lg:p-8">
         <div className="flex w-full max-w-sm flex-col gap-4 rounded-large glass-effect px-8 pb-10 pt-6 shadow-large">
           <p className="pb-2 text-xl font-medium flex gap-2 items-center justiy-center">
-            Login With <Image src={theme === 'light' ? '/logo-light-title.png' : '/logo-dark-title.png'} width={100} radius="none"></Image>
+            Login With <Image src={withBasePath(theme === 'light' ? '/logo-light-title.png' : '/logo-dark-title.png')} width={100} radius="none"></Image>
           </p>
 
           {providers.length > 0 && (

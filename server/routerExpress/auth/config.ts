@@ -264,7 +264,10 @@ const initOAuthStrategies = async () => {
     const providers = config.oauth2Providers || [];
     const failedProviders: string[] = [];
     for (const provider of providers) {
-      const callbackURL = `/api/auth/callback/${provider.id}`;
+      const authBaseUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+      const callbackURL = authBaseUrl
+        ? `${authBaseUrl}/api/auth/callback/${provider.id}`
+        : `/api/auth/callback/${provider.id}`;
       switch (provider.id) {
         case 'github':
           useOAuthStrategy(provider.id, new GitHubStrategy({

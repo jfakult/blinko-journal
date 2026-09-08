@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { withBasePath } from '@/lib/basePath';
 
 export const LoadingPage = () => {
   const [show, setShow] = useState(true);
@@ -31,7 +32,7 @@ export const LoadingPage = () => {
         >
           <div className="rounded-3xl overflow-hidden">
             <img
-              src="/loading.gif"
+              src={withBasePath('/loading.gif')}
               className="w-[70px] h-[70px] md:w-[100px] md:h-[100px] object-contain"
             />
           </div>

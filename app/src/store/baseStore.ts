@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMediaQuery } from 'usehooks-ts';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { stripBasePath } from '@/lib/basePath';
 export class BaseStore implements Store {
   sid = 'BaseStore';
   constructor() {
@@ -148,9 +149,10 @@ export class BaseStore implements Store {
     }, [navigate]);
 
     useEffect(() => {
-      if (location.pathname == '/review') {
+      const pathname = stripBasePath(location.pathname);
+      if (pathname == '/review') {
         this.currentTitle = 'daily-review';
-      } else if (location.pathname == '/detail') {
+      } else if (pathname == '/detail') {
         this.currentTitle = 'detail';
       } else if (searchParams.get('path') == 'all') {
         this.currentTitle = t('total');
@@ -160,20 +162,20 @@ export class BaseStore implements Store {
         this.currentTitle = 'todo';
       } else if (searchParams.get('path') == 'archived') {
         this.currentTitle = 'archived';
-      } else if (location.pathname == '/resources') {
+      } else if (pathname == '/resources') {
         this.currentTitle = 'resources';
       } else if (searchParams.get('path') == 'trash') {
         this.currentTitle = 'trash';
-      } else if (location.pathname == '/plugin') {
+      } else if (pathname == '/plugin') {
         this.currentTitle = 'plugin';
-      } else if (location.pathname == '/') {
+      } else if (pathname == '/') {
         this.currentTitle = 'blinko';
       } else {
         this.currentTitle = this.currentRouter?.title ?? '';
       }
 
-      if (this.currentRouter?.href != location.pathname) {
-        this.currentRouter = this.routerList.find((item) => item.href == location.pathname) as any;
+      if (this.currentRouter?.href != pathname) {
+        this.currentRouter = this.routerList.find((item) => item.href == pathname) as any;
       }
     }, [this.currentRouter, location.pathname, searchParams]);
 

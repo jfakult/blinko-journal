@@ -10,6 +10,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: './',
   plugins: [
     react(), 
     tailwindcss(),
@@ -28,47 +29,47 @@ export default defineConfig({
           short_name: 'Blinko',
           icons: [
             {
-              src: '/icons/Square30x30Logo.png',
+              src: './icons/Square30x30Logo.png',
               sizes: '30x30',
               type: 'image/png'
             },
             {
-              src: '/icons/Square44x44Logo.png',
+              src: './icons/Square44x44Logo.png',
               sizes: '44x44',
               type: 'image/png'
             },
             {
-              src: '/icons/Square71x71Logo.png',
+              src: './icons/Square71x71Logo.png',
               sizes: '71x71',
               type: 'image/png'
             },
             {
-              src: '/icons/Square89x89Logo.png',
+              src: './icons/Square89x89Logo.png',
               sizes: '89x89',
               type: 'image/png'
             },
             {
-              src: '/icons/Square107x107Logo.png',
+              src: './icons/Square107x107Logo.png',
               sizes: '107x107',
               type: 'image/png'
             },
             {
-              src: '/icons/Square142x142Logo.png',
+              src: './icons/Square142x142Logo.png',
               sizes: '142x142',
               type: 'image/png'
             },
             {
-              src: '/icons/Square150x150Logo.png',
+              src: './icons/Square150x150Logo.png',
               sizes: '150x150',
               type: 'image/png'
             },
             {
-              src: '/icons/Square284x284Logo.png',
+              src: './icons/Square284x284Logo.png',
               sizes: '284x284',
               type: 'image/png'
             },
             {
-              src: '/icons/Square310x310Logo.png',
+              src: './icons/Square310x310Logo.png',
               sizes: '310x310',
               type: 'image/png',
               purpose: 'any maskable'
@@ -76,7 +77,7 @@ export default defineConfig({
           ],
           theme_color: '#FFFFFF',
           background_color: '#FFFFFF',
-          start_url: '/',
+          start_url: './',
           display: 'standalone',
           orientation: 'portrait'
         },

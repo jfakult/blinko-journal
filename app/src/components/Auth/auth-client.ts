@@ -3,6 +3,7 @@ import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
 import { eventBus } from '@/lib/event';
 import { RootStore } from '@/store';
 import { UserStore } from '@/store/user';
+import { withBasePath } from '@/lib/basePath';
 
 let navigateFunction: ((path: string) => void) | null = null;
 
@@ -14,7 +15,7 @@ export function navigate(path: string) {
   if (navigateFunction) {
     navigateFunction(path);
   } else {
-    window.location.href = path;
+    window.location.href = withBasePath(path);
   }
 }
 

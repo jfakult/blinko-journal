@@ -26,6 +26,7 @@ import QuickNotePage from "./pages/quicknote";
 import QuickAIPage from "./pages/quickai";
 import QuickToolPage from "./pages/quicktool";
 import { useQuicknoteHotkey } from "./hooks/useQuicknoteHotkey";
+import { basePath, stripBasePath } from '@/lib/basePath';
 
 const HomePage = lazy(() => import('./pages/index'));
 const SignInPage = lazy(() => import('./pages/signin'));
@@ -87,9 +88,10 @@ const ProtectedRoute = ({ children }) => {
 
   useEffect(() => {
     const checkAuth = async () => {
+      const pathname = stripBasePath(location.pathname);
       const publicRoutes = ['/signin', '/signup', '/share', '/_offline', '/oauth-callback', '/ai-share', '/oauth-callback'];
       const isPublicRoute = publicRoutes.some(route =>
-        location.pathname === route || location.pathname.startsWith('/share/') || location.pathname.startsWith('/ai-share/')
+        pathname === route || pathname.startsWith('/share/') || pathname.startsWith('/ai-share/')
       );
       if (!userStore.isLogin && !isPublicRoute) {
         const tokenData = await getTokenData();
@@ -119,7 +121,7 @@ const getWindowType = () => {
   if (!isInTauri()) return 'main';
 
   // Check URL path to determine window type
-  const path = window.location.pathname;
+  const path = stripBasePath(window.location.pathname);
   if (path.startsWith('/quicktool')) return 'quicktool';
   if (path.startsWith('/quicknote')) return 'quicknote';
   if (path.startsWith('/quickai')) return 'quickai';
@@ -280,7 +282,7 @@ function App() {
           window.open(`cursor://file/${absolutePath}:${lineNumber}:${columnNumber}`)
         }}
       />
-      <BrowserRouter>
+      <BrowserRouter basename={basePath || undefined}>
         <HeroUIProvider>
           <ThemeProvider attribute="class" enableSystem={false}>
             <AppProvider />

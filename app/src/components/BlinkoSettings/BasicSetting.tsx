@@ -16,6 +16,7 @@ import { useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { ShowGen2FATokenModal } from "../Common/TwoFactorModal/gen2FATokenModal";
 import { CollapsibleCard } from "../Common/CollapsibleCard";
+import { withBasePath } from '@/lib/basePath';
 import { eventBus } from "@/lib/event";
 import { LinkAccountModal } from "../Common/Modals/LinkAccountModal";
 import { showTipsDialog } from "../Common/TipsDialog";
@@ -110,7 +111,7 @@ export const BasicSetting = observer(() => {
                     className="w-10 h-10 rounded-full object-cover cursor-pointer hover:opacity-80 transition-opacity"
                   />
                 ) : (
-                  <Image src="/logo.png" width={30} />
+                  <Image src={withBasePath('/logo.png')} width={30} />
                 )}
               </UploadFileWrapper>
             </div>

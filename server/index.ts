@@ -93,6 +93,17 @@ const app = express();
 const PORT = 1111;
 const appRootDev = path.resolve(__dirname, '../app');
 const appRootProd = path.resolve(__dirname, '../server');
+const configuredBasePath = (() => {
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXTAUTH_URL;
+  if (!configuredBaseUrl) return '';
+
+  try {
+    const basePath = new URL(configuredBaseUrl).pathname.replace(/\/+$/, '');
+    return basePath === '/' ? '' : basePath;
+  } catch {
+    return '';
+  }
+})();
 let server: any = null;
 
 if (process.env.NODE_ENV === 'production') {
@@ -293,6 +304,31 @@ async function bootstrap() {
     };
 
     const publicPath = path.resolve(appRootProd, 'public');
+
+    if (configuredBasePath) {
+      app.use((req, _res, next) => {
+        if (req.url === configuredBasePath) {
+          _res.redirect(`${configuredBasePath}/`);
+          return;
+        }
+
+        if (
+          req.url === configuredBasePath ||
+          req.url.startsWith(`${configuredBasePath}/`) ||
+          req.url.startsWith(`${configuredBasePath}?`)
+        ) {
+          req.url = req.url.slice(configuredBasePath.length) || '/';
+        }
+        next();
+      });
+    }
+
+    app.get('/config.js', (_req, res) => {
+      res.type('application/javascript').send(
+        `window.__BLINKO_CONFIG__ = ${JSON.stringify({ basePath: configuredBasePath })};`
+      );
+    });
+
     app.use(express.static(publicPath, staticOptions));
 
     // Add body parsers for JSON and form data

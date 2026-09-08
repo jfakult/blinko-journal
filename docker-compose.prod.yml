@@ -8,8 +8,8 @@ services:
     # container_name: blinko-website
     environment:
       NODE_ENV: production
-      # NEXTAUTH_URL: http://localhost:1111
-      # NEXT_PUBLIC_BASE_URL: http://localhost:1111
+      NEXTAUTH_URL: https://fakult.net/journal
+      NEXT_PUBLIC_BASE_URL: https://fakult.net/journal
       NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
       DATABASE_URL: postgresql://postgres:mysecretpassword@192.168.31.69:5435/postgres
     # depends_on:
