@@ -4,8 +4,7 @@
 // previously-unused gradientPairs concept for free visual variety across
 // entries with zero new asset work. See
 // docs/workstreams/09-entry-personalization.md §3.3/§1i.
-import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
-import { gradientForNoteId } from '@/lib/personalization';
+import { gradientForNoteId, getAuthenticatedImageUrl } from '@/lib/personalization';
 import { Note } from '@shared/lib/types';
 
 interface Props {
@@ -19,7 +18,10 @@ export const EntryCoverImage = ({ blinkoItem }: Props) => {
     return (
       <div className="w-full h-28 -mx-4 -mt-4 mb-3 overflow-hidden" style={{ width: 'calc(100% + 2rem)' }}>
         <img
-          src={getBlinkoEndpoint(coverImagePath)}
+          // CUSTOM-JOURNAL: a standalone-uploaded cover image (not attached to any
+          // note) 401s from the file route without a token - see
+          // getAuthenticatedImageUrl's comment in personalization.ts.
+          src={getAuthenticatedImageUrl(coverImagePath)}
           alt=""
           className="w-full h-full object-cover"
         />

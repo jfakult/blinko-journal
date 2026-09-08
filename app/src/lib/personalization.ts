@@ -1,5 +1,24 @@
 import type { CSSProperties } from 'react';
 import { getBlinkoEndpoint } from './blinkoEndpoint';
+import { RootStore } from '@/store';
+import { UserStore } from '@/store/user';
+
+// CUSTOM-JOURNAL: standalone-uploaded images (background/cover images, not
+// attached to any note) 401 from the file-serving route
+// (server/routerExpress/file/file.ts) unless a token is present - the route
+// allows unauthenticated access only for attachments belonging to a *shared*
+// note, and a standalone upload has no note attachment at all. A CSS
+// `background-image: url()` or plain <img src> never sends the Authorization
+// header axios attaches for XHR calls, so these need the token as a
+// `?token=` query param instead - the same fallback getTokenFromRequest
+// already supports server-side, and the pattern already used elsewhere in
+// this app (see app/src/components/Common/AttachmentRender/imageRender.tsx).
+export function getAuthenticatedImageUrl(path: string): string {
+  const token = RootStore.Get(UserStore).tokenData.value?.token;
+  const url = getBlinkoEndpoint(path);
+  if (!token) return url;
+  return `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+}
 
 // CUSTOM-JOURNAL: shared types/constants for background/font styling and
 // per-entry cover images. See docs/workstreams/09-entry-personalization.md
@@ -206,7 +225,7 @@ export function resolveBackgroundStyle(bg: BackgroundChoice | undefined, isDark:
       // bg.value is a raw stored file path (e.g. /api/file/...), same shape as
       // coverImagePath - needs resolving to a full URL, same as EntryCoverImage.tsx.
       return {
-        backgroundImage: `linear-gradient(${imageScrim(isDark)}, ${imageScrim(isDark)}), url("${getBlinkoEndpoint(bg.value)}")`,
+        backgroundImage: `linear-gradient(${imageScrim(isDark)}, ${imageScrim(isDark)}), url("${getAuthenticatedImageUrl(bg.value)}")`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       };
