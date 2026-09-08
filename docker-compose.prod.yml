@@ -12,7 +12,7 @@
 
 services:
   blinko-website:
-    image: blinkospace/blinko:latest
+    image: ghcr.io/jfakult/blinko-journal:latest
     # container_name: blinko-website
     environment:
       NODE_ENV: production
