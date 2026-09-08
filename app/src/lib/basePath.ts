@@ -11,7 +11,11 @@ function normalizeBasePath(path: string): string {
   return `/${path.replace(/^\/+|\/+$/g, '')}`;
 }
 
-export const basePath = normalizeBasePath(window.__BLINKO_CONFIG__?.basePath || '');
+const configuredBasePath = window.__BLINKO_CONFIG__?.basePath
+  || document.querySelector('base')?.getAttribute('href')
+  || '';
+
+export const basePath = normalizeBasePath(configuredBasePath);
 
 export function withBasePath(path: string): string {
   if (!path.startsWith('/') || path.startsWith('//')) return path;
