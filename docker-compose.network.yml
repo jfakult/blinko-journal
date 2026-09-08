@@ -1,0 +1,115 @@
+# docker-compose.network.yml
+#
+# Network-hardening overlay for the Blinko journal stack (Workstream 7).
+# Apply on top of docker-compose.prod.yml (plus whatever Workstreams 1 & 2
+# land there for the blinko-website / postgres / whisper service bodies):
+#
+#   docker compose -f docker-compose.prod.yml -f docker-compose.network.yml up -d
+#
+# Full rationale, the egress allowlist, and the real (from-scratch) egress
+# audit checklist live in docs/workstreams/07-network-hardening.md -- read
+# that before deploying this for real. This file only carries the
+# mechanical network wiring.
+#
+# ASSUMPTIONS -- check these before applying:
+#   1. blinko-website, postgres, and whisper are all *active* (uncommented)
+#      named services in docker-compose.prod.yml by the time this is
+#      applied. Compose cannot attach a network to a service that doesn't
+#      exist in the merged config -- if postgres/whisper are still
+#      commented out there, this overlay will silently only affect
+#      blinko-website. Re-check after Workstreams 1 & 2 land.
+#   2. `networks:` given as a list (as below) is merged/unioned across
+#      compose files by service+network name, not replaced -- so this is
+#      safe to layer on top of a base file that doesn't mention networks
+#      for a service, but if a future edit to docker-compose.prod.yml adds
+#      its own `networks:` list to one of these services, resolve the
+#      conflict there rather than assuming this file silently wins.
+#   3. Every placeholder below (marked `<...>`) needs a real value filled
+#      in by whoever actually deploys this (the Unraid host doesn't exist
+#      from this worktree, so exact IPs/hostnames for Ollama in particular
+#      are unknown here).
+
+networks:
+  # ---- Internal-only network -----------------------------------------
+  # blinko-website <-> postgres <-> whisper. `internal: true` removes
+  # Docker's default outbound route/NAT rule for this network, so any
+  # container on it *cannot* initiate a connection to the LAN or the
+  # internet -- only to other containers on the same network.
+  #
+  # This does NOT block inbound traffic that arrives via a published
+  # `ports:` host mapping (that's a DNAT rule on the host, independent of
+  # the container's own outbound route) -- so blinko-website keeping
+  # `ports: - 1111:1111` in docker-compose.prod.yml still works fine for a
+  # reverse proxy or LAN client to reach it, even though blinko-website
+  # also sits on this internal-only network.
+  blinko-internal:
+    driver: bridge
+    internal: true
+
+  # ---- LAN-egress network ----------------------------------------------
+  # blinko-website ONLY (see service list below). Not internal, so it has
+  # a normal route out through the host's Docker bridge/NAT. Docker itself
+  # has no concept of a per-destination allowlist ("only Ollama / Pocket-ID
+  # / the reverse proxy, nothing else") -- a bridge network can reach
+  # anything the host can reach. That allowlist has to be enforced at the
+  # host (Unraid) firewall layer, restricting this network's subnet to the
+  # specific destination IPs/ports in the table below. See
+  # docs/workstreams/07-network-hardening.md, "Enforcing the LAN
+  # allowlist," for the actual commands -- this compose file alone gives
+  # you network *segmentation* (whisper/postgres can never reach out at
+  # all), not destination *filtering* on the one network that can.
+  blinko-egress:
+    driver: bridge
+
+  # OPTIONAL alternative for reaching Ollama: uncomment and point `name:`
+  # at Ollama's actual Docker network if Ollama runs as a container that's
+  # already on a shared Docker network, rather than being reached over the
+  # LAN by IP. `external: true` tells Compose "this network already
+  # exists, don't try to create it." Prefer this over blinko-egress for
+  # the Ollama leg specifically if it's available -- it's one hop
+  # narrower (container-to-container, no host bridge/NAT in between) and
+  # easier to firewall precisely (see the doc). Keep blinko-egress either
+  # way for Pocket-ID and the reverse proxy, which are not Docker
+  # containers in this stack.
+  # ollama-shared:
+  #   external: true
+  #   name: <OLLAMA_DOCKER_NETWORK_NAME>   # placeholder -- fill in if used
+
+services:
+  blinko-website:
+    networks:
+      - blinko-internal
+      - blinko-egress
+      # - ollama-shared   # uncomment if using the shared-Docker-network approach above instead of/alongside blinko-egress for Ollama
+    # Ollama's own base URL, Pocket-ID's OIDC issuer URL, etc. are set
+    # through Blinko's admin settings UI / DB config (Workstream 4 and
+    # Workstream 1's job respectively), not env vars here -- this overlay
+    # only needs to make sure the network path to reach them exists.
+    # Known/placeholder destinations blinko-website needs to reach over
+    # blinko-egress (see docs/workstreams/07-network-hardening.md for the
+    # full table and why):
+    #   - Ollama:        http://<OLLAMA_LAN_IP_OR_HOSTNAME>:<OLLAMA_PORT>   (placeholder, default port 11434)
+    #   - Pocket-ID:     https://sso.fakult.net                             (known)
+    #   - Reverse proxy: <REVERSE_PROXY_LAN_IP_OR_HOSTNAME>                 (placeholder -- whatever fronts fakult.net/journal)
+
+  postgres:
+    networks:
+      - blinko-internal
+    # No egress network: postgres never initiates outbound connections to
+    # anything, it only accepts connections from blinko-website.
+
+  whisper:
+    networks:
+      - blinko-internal
+    # No egress network: a self-hosted Whisper/ASR container should be
+    # fully self-contained at runtime -- model weights baked into the
+    # image or a persistent volume, no network calls needed to transcribe.
+    # If Workstream 2's chosen image instead pulls model weights from the
+    # internet (e.g. Hugging Face) at container startup rather than at
+    # build time, it needs *temporary* egress the first time it runs.
+    # Preferred fix: bake the model into the image or a pre-populated
+    # volume so whisper never needs egress at all. If that's genuinely not
+    # feasible, give whisper narrow, model-host-only access on
+    # blinko-egress and confirm (via the audit checklist) that it goes
+    # quiet after the first successful start. Flagged as an open item in
+    # docs/workstreams/07-network-hardening.md.
