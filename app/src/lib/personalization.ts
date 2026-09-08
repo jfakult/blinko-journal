@@ -120,6 +120,36 @@ export const PATTERN_PRESETS: PatternDef[] = [
     label: 'Ruled lines',
     svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='${hex}' stroke-opacity='${opacity + 0.04}' stroke-width='1'/></svg>`),
   },
+  {
+    key: 'dots-large',
+    label: 'Large dots',
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36'><circle cx='4' cy='4' r='3' fill='${hex}' fill-opacity='${opacity + 0.04}'/></svg>`),
+  },
+  {
+    key: 'graph',
+    label: 'Graph paper',
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><path d='M24 0H0V24' fill='none' stroke='${hex}' stroke-opacity='${opacity}' stroke-width='1'/></svg>`),
+  },
+  {
+    key: 'crosshatch',
+    label: 'Crosshatch',
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24'><path d='M0 0L24 24M24 0L0 24' stroke='${hex}' stroke-opacity='${opacity - 0.02}' stroke-width='1'/></svg>`),
+  },
+  {
+    key: 'herringbone',
+    label: 'Herringbone',
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><path d='M0 10 L10 0 L20 10' fill='none' stroke='${hex}' stroke-opacity='${opacity}' stroke-width='1.5'/><path d='M0 20 L10 10 L20 20' fill='none' stroke='${hex}' stroke-opacity='${opacity}' stroke-width='1.5'/></svg>`),
+  },
+  {
+    key: 'waves',
+    label: 'Waves',
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='16'><path d='M0 8 Q10 0 20 8 T40 8' fill='none' stroke='${hex}' stroke-opacity='${opacity}' stroke-width='1'/></svg>`),
+  },
+  {
+    key: 'diagonal-stripes',
+    label: 'Diagonal stripes',
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 16L16 0M-4 4L4 -4M12 20L20 12' stroke='${hex}' stroke-opacity='${opacity - 0.02}' stroke-width='2'/></svg>`),
+  },
 ];
 
 // Warm accent colors - light variant is a soft pastel tint, dark variant is
