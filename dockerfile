@@ -15,8 +15,23 @@ ENV npm_config_sharp_libvips_binary_host="https://npmmirror.com/mirrors/sharp-li
 ENV PRISMA_ENGINES_MIRROR="https://registry.npmmirror.com/-/binary/prisma"
 ENV PRISMA_SKIP_POSTINSTALL_GENERATE=true
 
-# Copy Project Files
-COPY . .
+# CUSTOM-JOURNAL: dev-loop speedup. This used to be `COPY . .` right here, before
+# `bun install` - meaning ANY source file edit (a single .tsx change, docs, anything)
+# busted the Docker layer cache for `bun install` too, forcing a full dependency
+# reinstall on every rebuild even though package.json/bun.lock never changed. Splitting
+# into "copy just the workspace manifests + prisma schema, install, THEN copy the rest
+# of the source" means `bun install`/`prisma generate` stay cached across pure
+# source-code-only rebuilds - only the (fast) full copy + build steps re-run. The
+# second `COPY . .` below re-copies these same manifest files too, which is harmless
+# (identical content, and Docker no-ops an unchanged layer's downstream steps based on
+# content hash, not by avoiding the copy itself).
+COPY package.json bun.lock ./
+COPY app/package.json ./app/package.json
+COPY app/tauri-plugin-blinko/package.json ./app/tauri-plugin-blinko/package.json
+COPY server/package.json ./server/package.json
+COPY shared/package.json ./shared/package.json
+COPY blinko-types/package.json ./blinko-types/package.json
+COPY prisma ./prisma
 
 # Configure Mirror Based on USE_MIRROR Parameter
 RUN if [ "$USE_MIRROR" = "true" ]; then \
@@ -35,9 +50,13 @@ RUN if [ "$(uname -m)" = "aarch64" ] || [ "$(uname -m)" = "arm64" ]; then \
         bun install --force @img/sharp-linux-arm64 --no-save; \
     fi
 
-# Install Dependencies and Build App
+# Install Dependencies (cached unless a package.json/bun.lock actually changed)
 RUN bun install --unsafe-perm
 RUN bunx prisma generate
+
+# Copy Project Files (everything else - source code, changes on every edit)
+COPY . .
+
 RUN bun run build:web
 RUN bun run build:seed
 
