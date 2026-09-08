@@ -138,6 +138,13 @@ export const ZConfigSchema = z.object({
   isAllowRegister: z.any().optional(),
   isCloseBackgroundAnimation: z.boolean().optional(),
   customBackgroundUrl: z.any().optional(),
+  // CUSTOM-JOURNAL: entry-personalization additions (see
+  // docs/workstreams/09-entry-personalization.md) - config.list's output is
+  // validated against this schema (tRPC .output()), so a key missing here
+  // gets silently stripped before reaching the client even though
+  // config.update's input accepts any key (ZConfigKey has a z.any() catchall).
+  soundEnabled: z.boolean().optional(),
+  pageBackground: z.any().optional(),
   isOrderByCreateTime: z.any().optional(),
   timeFormat: z.any().optional(),
   smallDeviceCardColumns: z.any().optional(),

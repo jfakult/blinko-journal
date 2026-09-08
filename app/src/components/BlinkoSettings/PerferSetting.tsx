@@ -16,6 +16,9 @@ import { GradientBackground } from "../Common/GradientBackground";
 import { UserStore } from "@/store/user";
 import { BaseStore } from "@/store/baseStore";
 import FontSwitcher from "../Common/FontSwitcher";
+import { BackgroundPicker } from "../Common/BackgroundPicker";
+import { uploadImageFile } from "@/lib/uploadImageFile";
+import { BackgroundChoice } from "@/lib/personalization";
 
 export const PerferSetting = observer(() => {
   const { t } = useTranslation()
@@ -422,6 +425,31 @@ export const PerferSetting = observer(() => {
               key: 'soundEnabled',
               value: e.target.checked
             }))
+          }}
+        />
+      } />
+
+    {/* CUSTOM-JOURNAL: page-wide background (behind the whole app, distinct from
+        the per-entry background in PersonalizeButton) - same preset system/picker
+        component, stored as the global `pageBackground` config key instead of
+        per-note metadata. Applied in Layout/index.tsx. */}
+    <Item
+      type="col"
+      leftContent={<div className="flex flex-col">
+        <div>{t('page-background', { defaultValue: 'Page background' })}</div>
+        <div className="text-xs text-default-400">{t('page-background-tip', { defaultValue: 'Applies behind the whole app, not just individual entries' })}</div>
+      </div>}
+      rightContent={
+        <BackgroundPicker
+          value={blinko.config.value?.pageBackground as BackgroundChoice | undefined}
+          onChange={(value) => {
+            PromiseCall(api.config.update.mutate({ key: 'pageBackground', value: value ?? null }))
+          }}
+          onUploadImage={async (file) => {
+            const filePath = await uploadImageFile(file);
+            if (filePath) {
+              await PromiseCall(api.config.update.mutate({ key: 'pageBackground', value: { type: 'image', value: filePath } }))
+            }
           }}
         />
       } />

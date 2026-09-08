@@ -25,6 +25,8 @@ import { BlinkoNotification } from '@/components/BlinkoNotification';
 import { AiStore } from '@/store/aiStore';
 import { useLocation, useSearchParams, Link } from 'react-router-dom';
 import { stripBasePath } from '@/lib/basePath';
+import { useTheme } from 'next-themes';
+import { resolveBackgroundStyle, BackgroundChoice } from '@/lib/personalization';
 
 export const SideBarItem = 'p-2 flex flex-row items-center cursor-pointer gap-2 hover:bg-hover rounded-xl !transition-all';
 
@@ -41,6 +43,8 @@ export const CommonLayout = observer(({ children, header }: { children?: React.R
 
   const isPc = useMediaQuery('(min-width: 768px)');
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const user = RootStore.Get(UserStore);
   const blinkoStore = RootStore.Get(BlinkoStore);
   const base = RootStore.Get(BaseStore);
@@ -97,7 +101,13 @@ export const CommonLayout = observer(({ children, header }: { children?: React.R
 
       <main
         id="page-wrap"
-        style={{ width: isPc ? `calc(100% - ${base.sideBarWidth}px)` : '100%' }}
+        // CUSTOM-JOURNAL: page-wide background (Settings > Preferences > Page
+        // background), distinct from the per-entry background in PersonalizeButton -
+        // see docs/workstreams/09-entry-personalization.md.
+        style={{
+          width: isPc ? `calc(100% - ${base.sideBarWidth}px)` : '100%',
+          ...resolveBackgroundStyle(blinkoStore.config.value?.pageBackground as BackgroundChoice | undefined, isDark),
+        }}
         className={`flex !transition-all duration-300 overflow-y-hidden w-full flex-col gap-y-1 bg-secondbackground`}
       >
         {/* nav bar  */}

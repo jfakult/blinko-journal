@@ -23,6 +23,7 @@ import { api } from "@/lib/trpc";
 import { FullscreenEditor } from "./FullscreenEditor";
 import { EntryCoverImage } from "./EntryCoverImage";
 import { getBackgroundStyle, getFontStyle } from "@/lib/personalization";
+import { useTheme } from "next-themes";
 import { FontManager } from "@/lib/fontManager";
 
 
@@ -47,6 +48,8 @@ interface BlinkoCardProps {
 
 export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, glassEffect = false, forceBlog = false, withoutBoxShadow = false, withoutHoverAnimation = false, className, defaultExpanded = false }: BlinkoCardProps) => {
   const isPc = useMediaQuery('(min-width: 768px)');
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const blinko = RootStore.Get(BlinkoStore);
   const pluginApi = RootStore.Get(PluginApiStore);
   const { pathname } = useLocation();
@@ -135,7 +138,7 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
               shadow='none'
               // CUSTOM-JOURNAL: per-entry background from PersonalizeButton, see
               // app/src/lib/personalization.ts / docs/workstreams/09-entry-personalization.md
-              style={getBackgroundStyle(blinkoItem.metadata?.personalization)}
+              style={getBackgroundStyle(blinkoItem.metadata?.personalization, isDark)}
               className={`
                 flex flex-col p-4 ${glassEffect ? 'bg-transparent' : 'bg-background'} !transition-all group/card
                 ${isPc && !blinkoItem.isShare && !withoutHoverAnimation ? 'hover:translate-y-1' : ''}

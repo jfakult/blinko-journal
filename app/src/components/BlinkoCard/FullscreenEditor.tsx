@@ -15,6 +15,7 @@ import { FilesAttachmentRender } from "../Common/AttachmentRender";
 import { ReferencesContent } from "./referencesContent";
 import { useTranslation } from "react-i18next";
 import { getBackgroundStyle, getFontStyle } from "@/lib/personalization";
+import { useTheme } from "next-themes";
 
 interface FullscreenEditorProps {
   blinkoItem: BlinkoItem;
@@ -24,6 +25,8 @@ interface FullscreenEditorProps {
 
 export const FullscreenEditor = observer(({ blinkoItem, isOpen, onClose }: FullscreenEditorProps) => {
   const isPc = useMediaQuery('(min-width: 768px)');
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
   const blinko = RootStore.Get(BlinkoStore);
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<string>('wysiwyg');
@@ -243,7 +246,7 @@ export const FullscreenEditor = observer(({ blinkoItem, isOpen, onClose }: Fulls
             <div
               className="flex-1 overflow-y-auto min-h-0 py-4"
               // CUSTOM-JOURNAL: same per-entry background as the collapsed card (BlinkoCard/index.tsx)
-              style={{ height: isPc ? 'calc(100vh - 100px)' : 'calc(100vh - 80px)', ...getBackgroundStyle(blinkoItem.metadata?.personalization) }}
+              style={{ height: isPc ? 'calc(100vh - 100px)' : 'calc(100vh - 80px)', ...getBackgroundStyle(blinkoItem.metadata?.personalization, isDark) }}
               onDoubleClick={handleSwitchToEdit}
             >
               <div style={getFontStyle(blinkoItem.metadata?.personalization)}>

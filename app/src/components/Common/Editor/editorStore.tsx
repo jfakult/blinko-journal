@@ -19,6 +19,7 @@ import { eventBus } from '@/lib/event';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
 import axiosInstance from '@/lib/axios';
 import { playFinishChime } from '@/lib/sound';
+import { uploadImageFile } from '@/lib/uploadImageFile';
 
 export class EditorStore {
   files: FileType[] = []
@@ -297,20 +298,27 @@ export class EditorStore {
     }
   }
 
-  // CUSTOM-JOURNAL: upload a "cover" image for this entry - reuses the same
-  // /api/file/upload endpoint as uploadFiles() above, but stores the result
+  // CUSTOM-JOURNAL: upload a "cover" image for this entry - stores the result
   // in metadata.personalization.coverImagePath instead of pushing into the
   // attachments array, since a cover photo is a per-entry display choice,
   // not an inline attachment. See docs/workstreams/09-entry-personalization.md §3.3.
   uploadCoverImage = async (file: File) => {
-    const formData = new FormData();
-    formData.append('file', file);
-    const { onUploadProgress } = RootStore.Get(ToastPlugin).setSizeThreshold(40).uploadProgress(file);
-    const response = await axiosInstance.post(getBlinkoEndpoint('/api/file/upload'), formData, { onUploadProgress });
-    const filePath = response.data?.filePath;
+    const filePath = await uploadImageFile(file);
     if (filePath) {
       if (!this.metadata) this.metadata = {};
       this.metadata.personalization = { ...(this.metadata.personalization || {}), coverImagePath: filePath };
+    }
+    return filePath;
+  }
+
+  // CUSTOM-JOURNAL: upload an image to use as the entry's background (behind
+  // the whole card, distinct from the cover photo above CardHeader) - stores
+  // into metadata.personalization.background = { type: 'image', value: filePath }.
+  uploadBackgroundImage = async (file: File) => {
+    const filePath = await uploadImageFile(file);
+    if (filePath) {
+      if (!this.metadata) this.metadata = {};
+      this.metadata.personalization = { ...(this.metadata.personalization || {}), background: { type: 'image', value: filePath } };
     }
     return filePath;
   }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dropdown,
   DropdownTrigger,
@@ -16,10 +16,35 @@ interface FontSwitcherProps {
   onChange?: (fontname: string) => void;
 }
 
+const CSS_GENERIC_FALLBACK: Record<string, string> = {
+  serif: 'serif',
+  'sans-serif': 'sans-serif',
+  monospace: 'monospace',
+  handwriting: 'cursive',
+  display: 'sans-serif',
+};
+
 const FontSwitcher = ({ fontname = 'default', onChange }: FontSwitcherProps) => {
   const [fonts, setFonts] = useState<FontMetadata[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingFont, setLoadingFont] = useState<string | null>(null);
+  // CUSTOM-JOURNAL: the dropdown already set the right font-family CSS per option
+  // (below), but nothing ever loaded each font's actual @font-face stylesheet -
+  // only the currently-applied font gets loaded (via the effect below), so every
+  // *other* option silently fell back to its generic category font, defeating the
+  // point of a preview. Lazily load every option's stylesheet the first time the
+  // dropdown opens (not on mount, to avoid ~30 network requests before the user
+  // ever looks at this control).
+  const previewsLoaded = useRef(false);
+  const loadAllPreviews = () => {
+    if (previewsLoaded.current || fonts.length === 0) return;
+    previewsLoaded.current = true;
+    fonts.forEach(font => {
+      if (!font.isSystem && font.name !== 'default') {
+        FontManager.loadFont(font.name).catch(() => {});
+      }
+    });
+  };
 
   // Fetch font metadata from database on mount (no binary data - fast!)
   useEffect(() => {
@@ -86,7 +111,7 @@ const FontSwitcher = ({ fontname = 'default', onChange }: FontSwitcherProps) => 
   }
 
   return (
-    <Dropdown>
+    <Dropdown onOpenChange={(isOpen) => isOpen && loadAllPreviews()}>
       <DropdownTrigger>
         <Button variant="flat">
           {currentFont?.displayName || fontname || 'Select Font'}
@@ -112,7 +137,12 @@ const FontSwitcher = ({ fontname = 'default', onChange }: FontSwitcherProps) => 
           >
             <span
               style={{
-                fontFamily: font.isSystem ? undefined : `"${font.name}", ${font.category}`
+                // CUSTOM-JOURNAL: 'display'/'handwriting' aren't valid CSS generic
+                // font-family keywords (only serif/sans-serif/monospace/cursive/
+                // fantasy are) - an invalid fallback just gets ignored, which was
+                // harmless once the real font loads but could show tofu/wrong-font
+                // during that brief window. Map to a real generic keyword.
+                fontFamily: font.isSystem ? undefined : `"${font.name}", ${CSS_GENERIC_FALLBACK[font.category] || 'sans-serif'}`
               }}
             >
               {font.displayName}

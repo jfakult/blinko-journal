@@ -18,6 +18,7 @@ import { HashtagButton } from './Toolbar/HashtagButton';
 import { PersonalizeButton } from './Toolbar/PersonalizeButton';
 import { getBackgroundStyle } from '@/lib/personalization';
 import { FontManager } from '@/lib/fontManager';
+import { useTheme } from 'next-themes';
 import { ViewModeButton } from './Toolbar/ViewModeButton';
 import { SendButton } from './Toolbar/SendButton';
 import {
@@ -55,6 +56,8 @@ type IProps = {
 const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles, originReference = [], mode, onHeightChange, hiddenToolbar = false, withoutOutline = false, initialData, showTopToolbar = false }: IProps) => {
   const cardRef = React.useRef(null)
   const isPc = useMediaQuery('(min-width: 768px)')
+  const { resolvedTheme } = useTheme()
+  const isDark = resolvedTheme === 'dark'
   const store = useLocalObservable(() => new EditorStore())
   const pluginApi = RootStore.Get(PluginApiStore)
   const blinko = RootStore.Get(BlinkoStore)
@@ -238,7 +241,7 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
         className={`${showTopToolbar ? 'h-full flex flex-col flex-1 min-h-0' : 'p-2'} relative ${withoutOutline ? '' : 'border-2 border-border'} !transition-all ${showTopToolbar ? 'overflow-hidden' : 'overflow-visible'}
         ${store.isFullscreen ? 'fixed inset-0 z-[9999] m-0 rounded-none border-none bg-background' : ''}`}
         // CUSTOM-JOURNAL: per-entry background from PersonalizeButton, see app/src/lib/personalization.ts
-        style={getBackgroundStyle(store.metadata?.personalization)}
+        style={getBackgroundStyle(store.metadata?.personalization, isDark)}
         ref={el => {
           if (el) {
             //@ts-ignore

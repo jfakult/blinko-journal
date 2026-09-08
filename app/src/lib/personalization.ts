@@ -1,90 +1,169 @@
 import type { CSSProperties } from 'react';
+import { getBlinkoEndpoint } from './blinkoEndpoint';
 
-// CUSTOM-JOURNAL: shared types/constants for per-entry personalization
-// (background pattern/color, cover image, font). Stored under
-// `notes.metadata.personalization` — see docs/workstreams/09-entry-personalization.md
-// for the research behind this feature set. The metadata field already
-// round-trips editor -> API -> DB -> card (shallow-merged additively server
-// side), so this is additive-only: a new namespaced key, not new plumbing.
+// CUSTOM-JOURNAL: shared types/constants for personalization (background
+// pattern/color/gradient/image, cover image, font), both per-entry
+// (notes.metadata.personalization) and page-wide (a global config key, see
+// PageBackgroundSetting.tsx). See docs/workstreams/09-entry-personalization.md
+// for the original research; this file was revised after feedback that (a)
+// presets need light/dark variants so a choice never looks wrong after a
+// theme switch, and (b) backgrounds should support images and gradients too,
+// not just flat colors/patterns, and should be choosable for the whole page,
+// not just the entry card.
+
+export type BackgroundType = 'pattern' | 'color' | 'gradient' | 'image';
+
+export interface BackgroundChoice {
+  type: BackgroundType;
+  value: string; // preset key for pattern/color/gradient, or an image path/URL for 'image'
+}
 
 export interface EntryPersonalization {
-  background?: {
-    type: 'pattern' | 'color';
-    value: string; // pattern key (see PATTERNS) or a hex color
-  };
+  background?: BackgroundChoice;
   coverImagePath?: string;
   fontFamily?: string; // a `fonts.name` value (e.g. 'Lora', 'Caveat'), or 'default'
 }
 
-export interface PatternDef {
+interface ThemedPatternDef {
   key: string;
   label: string;
-  // A tileable background-image value (SVG data-URI) — kept subtle/monochrome
-  // so it reads as "paper texture" against the warm palette in both themes,
-  // not as a loud decorative pattern.
-  backgroundImage: string;
+  // Tileable SVG data-URIs, one per theme, so the same "grain"/"dots"/etc.
+  // choice keeps looking like subtle paper texture instead of a mismatched
+  // light pattern floating on a dark background (or vice versa).
+  light: string;
+  dark: string;
+}
+
+interface ThemedColorDef {
+  key: string;
+  label: string;
+  light: string;
+  dark: string;
+}
+
+interface ThemedGradientDef {
+  key: string;
+  label: string;
+  light: [string, string];
+  dark: [string, string];
 }
 
 const svgDataUri = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 
-export const PATTERNS: PatternDef[] = [
-  { key: 'blank', label: 'Blank', backgroundImage: 'none' },
+const grain = (fillOpacityRgb: string, alpha: string) =>
+  svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 ${fillOpacityRgb}  0 0 0 ${alpha} 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`);
+
+export const PATTERN_PRESETS: ThemedPatternDef[] = [
+  { key: 'blank', label: 'Blank', light: 'none', dark: 'none' },
   {
     key: 'grain',
     label: 'Paper grain',
-    backgroundImage: svgDataUri(
-      `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 0.55  0 0 0 0 0.42  0 0 0 0 0.30  0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`
-    ),
+    light: grain('0.55  0 0 0 0 0.42  0 0 0 0 0.30', '0.05'),
+    dark: grain('0.85  0 0 0 0 0.72  0 0 0 0 0.55', '0.06'),
   },
   {
     key: 'linen',
     label: 'Linen weave',
-    backgroundImage: svgDataUri(
-      `<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 0h16v1H0zM0 8h16v1H0z' fill='#8a6d4a' fill-opacity='0.05'/><path d='M0 0v16h1V0zM8 0v16h1V0z' fill='#8a6d4a' fill-opacity='0.05'/></svg>`
-    ),
+    light: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 0h16v1H0zM0 8h16v1H0z' fill='#8a6d4a' fill-opacity='0.05'/><path d='M0 0v16h1V0zM8 0v16h1V0z' fill='#8a6d4a' fill-opacity='0.05'/></svg>`),
+    dark: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 0h16v1H0zM0 8h16v1H0z' fill='#e8b074' fill-opacity='0.07'/><path d='M0 0v16h1V0zM8 0v16h1V0z' fill='#e8b074' fill-opacity='0.07'/></svg>`),
   },
   {
     key: 'dots',
     label: 'Dot grid',
-    backgroundImage: svgDataUri(
-      `<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='2' cy='2' r='1.1' fill='#8a6d4a' fill-opacity='0.14'/></svg>`
-    ),
+    light: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='2' cy='2' r='1.1' fill='#8a6d4a' fill-opacity='0.14'/></svg>`),
+    dark: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='2' cy='2' r='1.1' fill='#e8b074' fill-opacity='0.16'/></svg>`),
   },
   {
     key: 'lines',
     label: 'Ruled lines',
-    backgroundImage: svgDataUri(
-      `<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='#8a6d4a' stroke-opacity='0.12' stroke-width='1'/></svg>`
-    ),
+    light: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='#8a6d4a' stroke-opacity='0.12' stroke-width='1'/></svg>`),
+    dark: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='#e8b074' stroke-opacity='0.14' stroke-width='1'/></svg>`),
   },
 ];
 
-// Warm accent colors for the "color" background type — a smaller, warmer
-// palette than ThemeColor.tsx's global theme-color picker (this is a subtle
-// tint behind the card, not the app's primary accent color).
-export const ACCENT_COLORS: string[] = [
-  '#f3e9d8', // warm cream (matches --secondbackground)
-  '#f7e0c8', // soft amber
-  '#f0dede', // dusty rose
-  '#dde6d5', // sage
-  '#dbe6ec', // pale sky
-  '#e5ddf0', // soft lavender
+// Warm accent colors - light variant is a soft pastel tint, dark variant is
+// the same hue pulled toward the app's dark warm-paper palette
+// (--secondbackground: #241a10-ish territory) instead of staying pastel-bright
+// against dark UI chrome.
+export const COLOR_PRESETS: ThemedColorDef[] = [
+  { key: 'cream', label: 'Cream', light: '#f3e9d8', dark: '#2b2216' },
+  { key: 'amber', label: 'Amber', light: '#f7e0c8', dark: '#332618' },
+  { key: 'rose', label: 'Dusty rose', light: '#f0dede', dark: '#2e2222' },
+  { key: 'sage', label: 'Sage', light: '#dde6d5', dark: '#212b1c' },
+  { key: 'sky', label: 'Pale sky', light: '#dbe6ec', dark: '#1b262c' },
+  { key: 'lavender', label: 'Lavender', light: '#e5ddf0', dark: '#251f30' },
 ];
 
-export function getPatternByKey(key?: string): PatternDef | undefined {
-  return PATTERNS.find(p => p.key === key);
+export const GRADIENT_PRESETS: ThemedGradientDef[] = [
+  { key: 'sunrise', label: 'Sunrise', light: ['#f7e0c8', '#e8b074'], dark: ['#332618', '#5a3d1f'] },
+  { key: 'terracotta', label: 'Terracotta', light: ['#e0c9a6', '#b5541f'], dark: ['#2b2216', '#5c2b10'] },
+  { key: 'meadow', label: 'Meadow', light: ['#eaf0e0', '#8fae7a'], dark: ['#1c2418', '#33472a'] },
+  { key: 'dusk', label: 'Dusk', light: ['#ead9e8', '#8a6d9e'], dark: ['#241f2c', '#3d3350'] },
+  { key: 'ocean', label: 'Ocean', light: ['#dbe6ec', '#5a8ba0'], dark: ['#16232c', '#274a5c'] },
+];
+
+export function getPatternPreset(key?: string) {
+  return PATTERN_PRESETS.find(p => p.key === key);
+}
+export function getColorPreset(key?: string) {
+  return COLOR_PRESETS.find(p => p.key === key);
+}
+export function getGradientPreset(key?: string) {
+  return GRADIENT_PRESETS.find(p => p.key === key);
 }
 
-/** Sync — pure function of the pattern/color list, no font loading involved. */
-export function getBackgroundStyle(personalization?: EntryPersonalization): CSSProperties {
-  const bg = personalization?.background;
+/** Moderate scrim so an uploaded image stays legible behind entry text,
+ * without fully hiding the photo. Darker in dark mode (dark text-on-light
+ * assumptions flip) - this is a deliberate compromise, not per-image contrast
+ * analysis, since the user asked for image backgrounds despite the legibility
+ * tradeoff flagged in the original research (docs/workstreams/09-*.md §3.1). */
+function imageScrim(isDark: boolean): string {
+  return isDark ? 'rgba(20, 16, 10, 0.55)' : 'rgba(255, 250, 240, 0.55)';
+}
+
+/** Resolves a background choice (pattern/color/gradient/image key or path)
+ * into actual CSS for the current theme. Used for both per-entry (BlinkoCard,
+ * Editor) and page-wide (Layout) backgrounds - same choice shape, same
+ * resolution logic either way. */
+export function resolveBackgroundStyle(bg: BackgroundChoice | undefined, isDark: boolean): CSSProperties {
   if (!bg) return {};
-  if (bg.type === 'color') {
-    return { backgroundColor: bg.value };
+  switch (bg.type) {
+    case 'color': {
+      const preset = getColorPreset(bg.value);
+      if (!preset) return {};
+      return { backgroundColor: isDark ? preset.dark : preset.light };
+    }
+    case 'gradient': {
+      const preset = getGradientPreset(bg.value);
+      if (!preset) return {};
+      const [from, to] = isDark ? preset.dark : preset.light;
+      return { backgroundImage: `linear-gradient(135deg, ${from}, ${to})` };
+    }
+    case 'pattern': {
+      const preset = getPatternPreset(bg.value);
+      if (!preset) return {};
+      const image = isDark ? preset.dark : preset.light;
+      if (image === 'none') return {};
+      return { backgroundImage: image, backgroundRepeat: 'repeat' };
+    }
+    case 'image': {
+      if (!bg.value) return {};
+      // bg.value is a raw stored file path (e.g. /api/file/...), same shape as
+      // coverImagePath - needs resolving to a full URL, same as EntryCoverImage.tsx.
+      return {
+        backgroundImage: `linear-gradient(${imageScrim(isDark)}, ${imageScrim(isDark)}), url("${getBlinkoEndpoint(bg.value)}")`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+      };
+    }
+    default:
+      return {};
   }
-  const pattern = getPatternByKey(bg.value);
-  if (!pattern || pattern.backgroundImage === 'none') return {};
-  return { backgroundImage: pattern.backgroundImage, backgroundRepeat: 'repeat' };
+}
+
+/** Convenience wrapper for the common per-entry case. */
+export function getBackgroundStyle(personalization: EntryPersonalization | undefined, isDark: boolean): CSSProperties {
+  return resolveBackgroundStyle(personalization?.background, isDark);
 }
 
 /** Deterministic (not random-per-render) gradient fallback for entries with
