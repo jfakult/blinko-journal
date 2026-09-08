@@ -1,0 +1,15 @@
+{
+  "name": "journal-declutter",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CSS-only Blinko plugin that hides UI surfaces irrelevant to a single-user personal voice journal.",
+  "scripts": {
+    "build": "vite build",
+    "dev": "echo 'Local dev/live-reload for Blinko plugins uses a websocket dev server (docs: https://docs.blinko.space/en/plugins/get-started.md). If the official blinko-cli exposes a `dev` command by the time you deploy this, prefer it over this placeholder.'"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vite": "^5.4.0"
+  }
+}
