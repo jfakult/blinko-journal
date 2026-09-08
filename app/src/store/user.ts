@@ -197,7 +197,7 @@ export class UserStore implements Store {
   }
 
   updateAppTitle(customTitle?: string) {
-    const appTitle = customTitle?.trim() || 'Blinko';
+    const appTitle = customTitle?.trim() || 'Journal';
     document.title = appTitle;
     document.querySelector('meta[name="application-name"]')?.setAttribute('content', appTitle);
     document.querySelector('meta[name="apple-mobile-web-app-title"]')?.setAttribute('content', appTitle);

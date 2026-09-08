@@ -90,9 +90,9 @@ export const AboutSetting = observer(() => {
       title={t('about')}
     >
       <div className="flex items-start space-x-4 mb-6">
-        <Image src={withBasePath('/logo.png')} alt="Blinko" className="w-16 h-16 rounded-xl" />
+        <Image src={withBasePath('/logo.png')} alt="Journal" className="w-16 h-16 rounded-xl" />
         <div>
-          <h2 className="text-xl font-semibold">Blinko</h2>
+          <h2 className="text-xl font-semibold">Journal</h2>
           <div className="flex flex-col gap-2 mt-1">
             <div className="flex items-center gap-2">
               <Chip
@@ -157,53 +157,35 @@ export const AboutSetting = observer(() => {
         </div>
       </div>
 
+      {/* CUSTOM-JOURNAL: "what is this site" blurb, per the user's request to explain
+          the journaling motivation on the About page. */}
+      <div className="mb-6 p-4 rounded-lg bg-secondbackground">
+        <h3 className="font-medium mb-2">{t('what-is-this-site', { defaultValue: 'What is this?' })}</h3>
+        <p className="text-sm text-desc leading-relaxed">
+          {t('what-is-this-site-blurb', {
+            defaultValue: "This is a private, voice-first journal. The idea isn't polished writing — it's capturing a moment of feeling before it passes: a quick voice note or a few typed lines, recorded consistently enough over months and years that the small, ordinary days end up remembered alongside the big ones. AI handles the tedious parts (transcription, tagging) so all that's actually required is a few honest seconds."
+          })}
+        </p>
+      </div>
+
       <div className="space-y-4">
         <h3 className="font-medium text-gray-500 mb-2">{t('community')}</h3>
+        {/* CUSTOM-JOURNAL: points at this fork's own repo, not upstream blinkospace/blinko.
+            Discord/Telegram (upstream Blinko's community channels) removed - not relevant
+            to a single-user personal deployment. */}
         <Item
           leftContent={<>GitHub</>}
           rightContent={
             <Link
-              href="https://github.com/blinko-space/blinko"
+              href="https://github.com/jfakult/blinko-journal"
               target="_blank"
               className="text-primary flex items-center gap-1"
             >
               <Icon icon="mdi:github" width="20" />
-              blinko-space/blinko
+              jfakult/blinko-journal
             </Link>
           }
         />
-        <Item
-          leftContent={<>Discord</>}
-          rightContent={
-            <Link
-              href="https://discord.gg/e5UdKX7w"
-              target="_blank"
-              className="text-primary flex items-center gap-1"
-            >
-              <Icon icon="mdi:discord" width="20" />
-              Blinko Community
-            </Link>
-          }
-        />
-        {/* CUSTOM-JOURNAL: className wires this row into the journal-declutter plugin's
-            existing (previously-unused-here) `Item` className prop so it can be hidden
-            via CSS (.cj-hide-telegram) — there's no dedicated Telegram bot integration
-            in this fork's core, just this community-chat link. */}
-        <Item
-          className="cj-hide-telegram"
-          leftContent={<>Telegram</>}
-          rightContent={
-            <Link
-              href="https://t.me/blinkoEnglish"
-              target="_blank"
-              className="text-primary flex items-center gap-1"
-            >
-              <Icon icon="mdi:telegram" width="20" />
-              @blinko
-            </Link>
-          }
-        />
-
       </div>
 
       <div className="space-y-4 mt-6">
