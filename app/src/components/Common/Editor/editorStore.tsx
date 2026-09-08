@@ -63,8 +63,11 @@ export class EditorStore {
 
   // CUSTOM-JOURNAL: mutates metadata AND persists the draft (create/edit-mode
   // storage, same pattern as content/attachments) so a refresh mid-compose
-  // doesn't lose a personalization choice. PersonalizeButton calls this instead
-  // of mutating store.metadata directly.
+  // doesn't lose an in-progress change. Background/font moved to the global
+  // config.entryTheme setting (see personalization.ts) and no longer go
+  // through here - this is now specifically for the per-entry cover photo
+  // (uploadCoverImage below), which does need draft persistence since the
+  // file's already uploaded server-side before the note itself is saved.
   updateMetadata(patch: Record<string, any>) {
     this.metadata = { ...this.metadata, ...patch };
     if (this.mode === 'create') {
@@ -326,17 +329,6 @@ export class EditorStore {
     const filePath = await uploadImageFile(file);
     if (filePath) {
       this.updateMetadata({ personalization: { ...(this.metadata?.personalization || {}), coverImagePath: filePath } });
-    }
-    return filePath;
-  }
-
-  // CUSTOM-JOURNAL: upload an image to use as the entry's background (behind
-  // the whole card, distinct from the cover photo above CardHeader) - stores
-  // into metadata.personalization.background = { type: 'image', value: filePath }.
-  uploadBackgroundImage = async (file: File) => {
-    const filePath = await uploadImageFile(file);
-    if (filePath) {
-      this.updateMetadata({ personalization: { ...(this.metadata?.personalization || {}), background: { type: 'image', value: filePath } } });
     }
     return filePath;
   }

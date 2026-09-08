@@ -246,10 +246,10 @@ export const FullscreenEditor = observer(({ blinkoItem, isOpen, onClose }: Fulls
             <div
               className="flex-1 overflow-y-auto min-h-0 py-4"
               // CUSTOM-JOURNAL: same per-entry background as the collapsed card (BlinkoCard/index.tsx)
-              style={{ height: isPc ? 'calc(100vh - 100px)' : 'calc(100vh - 80px)', ...getBackgroundStyle(blinkoItem.metadata?.personalization, isDark) }}
+              style={{ height: isPc ? 'calc(100vh - 100px)' : 'calc(100vh - 80px)', ...getBackgroundStyle(blinko.config.value?.entryTheme, isDark) }}
               onDoubleClick={handleSwitchToEdit}
             >
-              <div style={getFontStyle(blinkoItem.metadata?.personalization)}>
+              <div style={getFontStyle(blinko.config.value?.entryTheme)}>
                 <MarkdownRender
                   content={blinko.noteDetail.value?.content ?? blinkoItem.content}
                   onChange={(newContent) => {

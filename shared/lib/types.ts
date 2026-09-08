@@ -145,6 +145,7 @@ export const ZConfigSchema = z.object({
   // config.update's input accepts any key (ZConfigKey has a z.any() catchall).
   soundEnabled: z.boolean().optional(),
   pageBackground: z.any().optional(),
+  entryTheme: z.any().optional(),
   isOrderByCreateTime: z.any().optional(),
   timeFormat: z.any().optional(),
   smallDeviceCardColumns: z.any().optional(),

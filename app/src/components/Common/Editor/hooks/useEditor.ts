@@ -564,10 +564,11 @@ export const useEditorInit = (
         // the hidden type regardless of which page/button they're created from.
         store.noteType = NoteType.NOTE
       }
-      // CUSTOM-JOURNAL: load any draft personalization (background/font) for this
-      // in-progress create-mode entry, same as content/attachments already do via
-      // createContentStorage/createAttachmentsStorage - previously metadata reset to
-      // {} on every mount, so a refresh mid-compose silently lost the choice.
+      // CUSTOM-JOURNAL: load any draft per-entry metadata (currently just a cover
+      // photo, see personalization.ts) for this in-progress create-mode entry,
+      // same as content/attachments already do via createContentStorage/
+      // createAttachmentsStorage - previously metadata reset to {} on every
+      // mount, so a refresh mid-compose silently lost an uploaded cover photo.
       store.metadata = { ...(blinko.createMetadataStorage.value?.metadata || {}) }
       if (searchParams.get('tagId')) {
         try {
@@ -582,13 +583,13 @@ export const useEditorInit = (
       }
     } else {
       store.noteType = toNoteTypeEnum(blinko.curSelectedNote?.type)
-      // CUSTOM-JOURNAL: load this note's existing personalization (background/font)
-      // into the editor store on edit, so PersonalizeButton reflects the current
-      // choice instead of appearing blank - metadata otherwise defaults to {} and
-      // is only ever set on send (editorStore.tsx), never read from curSelectedNote.
-      // A local draft override (editMetadataStorage) takes priority if present, same
-      // as editContentStorage does for unsaved edits to content - a refresh mid-edit
-      // shouldn't lose an in-progress personalization change either.
+      // CUSTOM-JOURNAL: load this note's existing per-entry metadata (currently
+      // just a cover photo) into the editor store on edit, so it reflects the
+      // current state instead of appearing blank - metadata otherwise defaults
+      // to {} and is only ever set on send (editorStore.tsx), never read from
+      // curSelectedNote. A local draft override (editMetadataStorage) takes
+      // priority if present, same as editContentStorage does for unsaved edits
+      // to content - a refresh mid-edit shouldn't lose an in-progress upload.
       const draftMetadata = blinko.editMetadataStorage.list?.find(i => Number(i.id) == Number(blinko.curSelectedNote?.id))
       store.metadata = { ...(blinko.curSelectedNote?.metadata || {}), ...(draftMetadata?.metadata || {}) }
     }

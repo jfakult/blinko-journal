@@ -1,21 +1,28 @@
 import type { CSSProperties } from 'react';
 import { getBlinkoEndpoint } from './blinkoEndpoint';
 
-// CUSTOM-JOURNAL: shared types/constants for personalization (background
-// pattern/color/gradient/image, cover image, font), both per-entry
-// (notes.metadata.personalization) and page-wide (a global `pageBackground`
-// config key, applied in Layout/index.tsx). See
-// docs/workstreams/09-entry-personalization.md for the original research.
+// CUSTOM-JOURNAL: shared types/constants for background/font styling and
+// per-entry cover images. See docs/workstreams/09-entry-personalization.md
+// for the original research.
 //
 // Revision history worth knowing if you're reading this after another round
-// of feedback: color used to be one of four mutually-exclusive background
-// *types* (pattern OR color OR gradient OR image) with patterns baked to a
-// single fixed texture color per app theme. Reworked so pattern and color are
-// independent: 'pattern' type always carries its own `color` (a preset key OR
-// any custom hex from a native color picker), and the pattern texture's own
-// tint is derived from that chosen color's luminance rather than the app
-// theme - so a pattern looks right no matter which color (preset or fully
-// custom) it's paired with, not just the two app-theme states.
+// of feedback:
+// - Color used to be one of four mutually-exclusive background *types*
+//   (pattern OR color OR gradient OR image) with patterns baked to a single
+//   fixed texture color per app theme. Reworked so pattern and color are
+//   independent: 'pattern' type always carries its own `color` (a preset key
+//   OR any custom hex from a native color picker), and the pattern texture's
+//   own tint is derived from that chosen color's luminance rather than the
+//   app theme - so a pattern looks right no matter which color (preset or
+//   fully custom) it's paired with, not just the two app-theme states.
+// - "Entry theme" (background + font) is a SINGLE GLOBAL, account-synced
+//   setting (config.entryTheme), not a per-note choice - the user wants one
+//   theme applied consistently everywhere they compose/read an entry, on any
+//   device, same as the pageBackground setting. Only the cover photo
+//   (EntryPersonalization.coverImagePath) stays genuinely per-entry, since
+//   that's a distinct photo attached to one specific entry, not a styling
+//   choice. EntryTheme used to live in notes.metadata.personalization
+//   alongside coverImagePath - moved out to config.entryTheme.
 
 export type BackgroundType = 'pattern' | 'gradient' | 'image';
 
@@ -30,8 +37,16 @@ export interface BackgroundChoice {
   value?: string;
 }
 
-export interface EntryPersonalization {
+/** Global, account-synced (config.entryTheme) - background + font applied
+ * uniformly to every entry, everywhere, on every device. */
+export interface EntryTheme {
   background?: BackgroundChoice;
+  fontFamily?: string; // a `fonts.name` value (e.g. 'Lora', 'Caveat'), or 'default'
+}
+
+/** Per-entry (notes.metadata.personalization) - just the cover photo now;
+ * background/font moved to the global EntryTheme above. */
+export interface EntryPersonalization {
   coverImagePath?: string;
   fontFamily?: string; // a `fonts.name` value (e.g. 'Lora', 'Caveat'), or 'default'
 }
@@ -201,9 +216,9 @@ export function resolveBackgroundStyle(bg: BackgroundChoice | undefined, isDark:
   }
 }
 
-/** Convenience wrapper for the common per-entry case. */
-export function getBackgroundStyle(personalization: EntryPersonalization | undefined, isDark: boolean): CSSProperties {
-  return resolveBackgroundStyle(personalization?.background, isDark);
+/** Convenience wrapper for the common "apply the global entry theme" case. */
+export function getBackgroundStyle(entryTheme: EntryTheme | undefined, isDark: boolean): CSSProperties {
+  return resolveBackgroundStyle(entryTheme?.background, isDark);
 }
 
 /** Deterministic (not random-per-render) gradient fallback for entries with
@@ -229,8 +244,8 @@ export function gradientForNoteId(id?: number): [string, string] {
  * the font's own name + a generic fallback; exact @font-face loading is
  * kicked off by whichever component renders the font picker (PersonalizeButton)
  * or the global FontSwitcher, both of which call FontManager already. */
-export function getFontStyle(personalization?: EntryPersonalization): CSSProperties {
-  const fontFamily = personalization?.fontFamily;
+export function getFontStyle(entryTheme?: EntryTheme): CSSProperties {
+  const fontFamily = entryTheme?.fontFamily;
   if (!fontFamily || fontFamily === 'default') return {};
   return { fontFamily: `"${fontFamily}", var(--font-family)` };
 }

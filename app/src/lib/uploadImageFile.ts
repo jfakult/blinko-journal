@@ -1,7 +1,7 @@
 // CUSTOM-JOURNAL: shared "upload a standalone image, get back a stored file
-// path" helper - the common piece behind EditorStore's uploadCoverImage /
-// uploadBackgroundImage (per-entry) and the page-wide background setting in
-// PerferSetting.tsx (global, not tied to any note). Same /api/file/upload
+// path" helper - the common piece behind EditorStore's uploadCoverImage
+// (per-entry), and the global entry-theme (PersonalizeButton) and
+// page-background (PerferSetting.tsx) settings. Same /api/file/upload
 // endpoint used for regular note attachments and voice memos.
 import axiosInstance from '@/lib/axios';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';

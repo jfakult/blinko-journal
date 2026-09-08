@@ -58,11 +58,14 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
   // Set isExpand flag to prevent drag when fullscreen editor is open for this note
   blinkoItem.isExpand = blinko.fullscreenEditorNoteId === blinkoItem.id;
 
-  // CUSTOM-JOURNAL: ensure a chosen per-entry font's @font-face is actually
-  // loaded when viewing a card (not just when it was picked in the editor) -
+  // CUSTOM-JOURNAL: entry theme (background/font) is a global, account-synced
+  // setting (config.entryTheme), not per-note - see
+  // app/src/lib/personalization.ts's revision history comment. Ensure the
+  // chosen font's @font-face is actually loaded when viewing a card -
   // getFontStyle() only sets the CSS font-family value, it can't load the
   // stylesheet itself.
-  const cardFontFamily = blinkoItem.metadata?.personalization?.fontFamily;
+  const entryTheme = blinko.config.value?.entryTheme;
+  const cardFontFamily = entryTheme?.fontFamily;
   useEffect(() => {
     if (cardFontFamily && cardFontFamily !== 'default') {
       FontManager.getScopedFontFamily(cardFontFamily).catch(() => {});
@@ -136,9 +139,9 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
             <Card
               onContextMenu={e => !isPc && e.stopPropagation()}
               shadow='none'
-              // CUSTOM-JOURNAL: per-entry background from PersonalizeButton, see
+              // CUSTOM-JOURNAL: global entry theme background, see
               // app/src/lib/personalization.ts / docs/workstreams/09-entry-personalization.md
-              style={getBackgroundStyle(blinkoItem.metadata?.personalization, isDark)}
+              style={getBackgroundStyle(entryTheme, isDark)}
               className={`
                 flex flex-col p-4 ${glassEffect ? 'bg-transparent' : 'bg-background'} !transition-all group/card
                 ${isPc && !blinkoItem.isShare && !withoutHoverAnimation ? 'hover:translate-y-1' : ''}
@@ -151,10 +154,10 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
                 <EntryCoverImage blinkoItem={blinkoItem} />
                 <CardHeader blinkoItem={blinkoItem} blinko={blinko} isShareMode={isShareMode} isExpanded={defaultExpanded} account={account} />
 
-                {/* CUSTOM-JOURNAL: per-entry font applies to the entry text itself, not the
-                    header (title/date/menu) or footer (tags/actions) - a handwriting font on
-                    UI chrome would look odd, on the writing itself it's the point. */}
-                <div style={getFontStyle(blinkoItem.metadata?.personalization)}>
+                {/* CUSTOM-JOURNAL: entry theme font applies to the entry text itself, not
+                    the header (title/date/menu) or footer (tags/actions) - a handwriting
+                    font on UI chrome would look odd, on the writing itself it's the point. */}
+                <div style={getFontStyle(entryTheme)}>
                   {blinkoItem.isBlog && (
                     <CardBlogBox blinkoItem={blinkoItem} isExpanded={defaultExpanded} />
                   )}

@@ -1,21 +1,26 @@
-// CUSTOM-JOURNAL: per-entry personalization picker (background pattern/color/
-// gradient/image + warm font), see docs/workstreams/09-entry-personalization.md.
-// Follows HashtagButton's Popover-in-toolbar pattern; writes into
-// store.metadata.personalization, which already round-trips to the DB
-// unchanged (EditorStore.metadata was already wired through handleSend).
-// Background swatch grid + upload is shared with the page-wide background
-// setting via BackgroundPicker.
-import { useEffect, useState } from 'react';
+// CUSTOM-JOURNAL: "Entry theme" (background + font) - a single GLOBAL,
+// account-synced setting (config.entryTheme), not a per-note choice. Lives as
+// a toolbar button in the editor for quick access while composing, but reads/
+// writes the same global config the page-background setting in
+// PerferSetting.tsx does - see app/src/lib/personalization.ts's revision
+// history comment for why this changed from per-entry. Cover photo (still
+// genuinely per-entry - a specific photo attached to one entry) stays wired
+// through EditorStore/store.uploadCoverImage.
+import { useEffect, useState, useRef } from 'react';
 import { observer } from 'mobx-react-lite';
 import { Popover, PopoverTrigger, PopoverContent } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { IconButton } from '../IconButton';
 import { EditorStore } from '../../editorStore';
 import { RootStore } from '@/store/root';
+import { RootStore as GlobalRootStore } from '@/store';
+import { BlinkoStore } from '@/store/blinkoStore';
 import { api } from '@/lib/trpc';
+import { PromiseCall } from '@/store/standard/PromiseState';
 import { FontManager, FontMetadata } from '@/lib/fontManager';
-import { EntryPersonalization, BackgroundChoice } from '@/lib/personalization';
+import { EntryPersonalization, EntryTheme, BackgroundChoice } from '@/lib/personalization';
 import { BackgroundPicker } from '@/components/Common/BackgroundPicker';
+import { uploadImageFile } from '@/lib/uploadImageFile';
 
 interface Props {
   store: EditorStore;
@@ -23,6 +28,7 @@ interface Props {
 
 export const PersonalizeButton = observer(({ store }: Props) => {
   const { t } = useTranslation();
+  const blinko = GlobalRootStore.Get(BlinkoStore);
   const [fonts, setFonts] = useState<FontMetadata[]>([]);
   const localStore = RootStore.Local(() => ({ show: false }));
 
@@ -39,20 +45,33 @@ export const PersonalizeButton = observer(({ store }: Props) => {
     }).catch(() => {});
   }, []);
 
+  const entryTheme: EntryTheme = blinko.config.value?.entryTheme || {};
   const personalization: EntryPersonalization = store.metadata?.personalization || {};
 
-  const setPersonalization = (patch: Partial<EntryPersonalization>) => {
-    store.updateMetadata({ personalization: { ...personalization, ...patch } });
+  // CUSTOM-JOURNAL: debounced, no-toast config write. A native <input
+  // type="color"> fires onChange continuously while dragging inside the
+  // picker, not just on release - without this every drag tick fired a
+  // separate mutation AND a separate "Operation successful" toast. autoAlert
+  // is off entirely for this setting regardless (a toast on every swatch
+  // click is noise, not signal, even without the drag-spam case).
+  const saveTimer = useRef<NodeJS.Timeout | null>(null);
+  const setEntryTheme = (patch: Partial<EntryTheme>) => {
+    const next = { ...entryTheme, ...patch };
+    blinko.config.setValue({ ...blinko.config.value, entryTheme: next }); // optimistic, instant UI feedback
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      PromiseCall(api.config.update.mutate({ key: 'entryTheme', value: next }), { autoAlert: false });
+    }, 300);
   };
 
   const setFont = async (fontName: string) => {
     if (fontName !== 'default') {
       await FontManager.getScopedFontFamily(fontName).catch(() => {});
     }
-    setPersonalization({ fontFamily: fontName });
+    setEntryTheme({ fontFamily: fontName });
   };
 
-  const hasCustomization = !!(personalization.background || personalization.coverImagePath || (personalization.fontFamily && personalization.fontFamily !== 'default'));
+  const hasCustomization = !!(entryTheme.background || personalization.coverImagePath || (entryTheme.fontFamily && entryTheme.fontFamily !== 'default'));
 
   const [uploadingCover, setUploadingCover] = useState(false);
   const handleCoverFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -84,29 +103,16 @@ export const PersonalizeButton = observer(({ store }: Props) => {
       <PopoverContent className="p-3 w-[280px] max-h-[70vh] overflow-y-auto">
         <div className="flex flex-col gap-3 w-full">
           <div>
-            <div className="text-xs font-bold text-desc mb-1.5">{t('background', { defaultValue: 'Background' })}</div>
-            {/* CUSTOM-JOURNAL: swatches render this theme's variant of each preset so
-                the picker always shows what you'll actually see - a color/pattern/
-                gradient choice persists across a light/dark switch but always renders
-                its theme-appropriate variant, never a mismatched light pastel on a
-                dark page or vice versa. */}
+            <div className="text-xs font-bold text-desc mb-0.5">{t('entry-theme', { defaultValue: 'Entry theme' })}</div>
+            <div className="text-[11px] text-desc mb-1.5">{t('entry-theme-tip', { defaultValue: 'Applies to every entry, everywhere - not just this one' })}</div>
             <BackgroundPicker
-              value={personalization.background}
-              onChange={(background) => setPersonalization({ background })}
-              onUploadImage={(file) => store.uploadBackgroundImage(file)}
+              value={entryTheme.background}
+              onChange={(background) => setEntryTheme({ background })}
+              onUploadImage={async (file) => {
+                const filePath = await uploadImageFile(file);
+                if (filePath) setEntryTheme({ background: { type: 'image', value: filePath } });
+              }}
             />
-          </div>
-
-          <div>
-            <div className="text-xs font-bold text-desc mb-1.5">{t('cover-photo', { defaultValue: 'Cover photo' })}</div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer text-desc hover:text-foreground !transition-colors">
-              <input type="file" accept="image/*" className="hidden" onChange={handleCoverFile} disabled={uploadingCover} />
-              {uploadingCover
-                ? t('uploading', { defaultValue: 'Uploading...' })
-                : personalization.coverImagePath
-                  ? t('change-cover-photo', { defaultValue: 'Change cover photo' })
-                  : t('add-cover-photo', { defaultValue: 'Add cover photo' })}
-            </label>
           </div>
 
           <div>
@@ -118,7 +124,7 @@ export const PersonalizeButton = observer(({ store }: Props) => {
                   onClick={() => setFont(f.name)}
                   className="px-2 py-1 rounded-md cursor-pointer text-sm border-2"
                   style={{
-                    borderColor: (personalization.fontFamily || 'default') === f.name ? 'var(--primary)' : 'var(--border)',
+                    borderColor: (entryTheme.fontFamily || 'default') === f.name ? 'var(--primary)' : 'var(--border)',
                     fontFamily: f.isSystem ? undefined : `"${f.name}", ${f.category === 'handwriting' ? 'cursive' : 'serif'}`,
                   }}
                 >
@@ -126,6 +132,18 @@ export const PersonalizeButton = observer(({ store }: Props) => {
                 </div>
               ))}
             </div>
+          </div>
+
+          <div>
+            <div className="text-xs font-bold text-desc mb-1.5">{t('cover-photo', { defaultValue: 'Cover photo (this entry only)' })}</div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer text-desc hover:text-foreground !transition-colors">
+              <input type="file" accept="image/*" className="hidden" onChange={handleCoverFile} disabled={uploadingCover} />
+              {uploadingCover
+                ? t('uploading', { defaultValue: 'Uploading...' })
+                : personalization.coverImagePath
+                  ? t('change-cover-photo', { defaultValue: 'Change cover photo' })
+                  : t('add-cover-photo', { defaultValue: 'Add cover photo' })}
+            </label>
           </div>
         </div>
       </PopoverContent>

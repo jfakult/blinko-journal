@@ -175,14 +175,14 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
     }
   }, [initialData, mode]);
 
-  // CUSTOM-JOURNAL: apply this entry's chosen font (if any) to the vditor
-  // content while composing, falling back to the global font on unmount /
-  // when no per-entry font is set. Reuses FontManager's existing
+  // CUSTOM-JOURNAL: apply the global entry theme's font (if any) to the vditor
+  // content while composing, falling back to the global app font on unmount /
+  // when no entry-theme font is set. Reuses FontManager's existing
   // applyFontToVditor selector-targeting rather than duplicating it.
+  const entryThemeFontFamily = blinko.config.value?.entryTheme?.fontFamily;
   useEffect(() => {
-    const fontFamily = store.metadata?.personalization?.fontFamily;
-    if (fontFamily && fontFamily !== 'default') {
-      FontManager.getScopedFontFamily(fontFamily).then(family => {
+    if (entryThemeFontFamily && entryThemeFontFamily !== 'default') {
+      FontManager.getScopedFontFamily(entryThemeFontFamily).then(family => {
         if (family) FontManager.applyFontToVditor(family);
       }).catch(() => {});
     } else {
@@ -191,7 +191,7 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
     return () => {
       FontManager.applyFontToVditor(FontManager.getCurrentFontFamily());
     };
-  }, [store.metadata?.personalization?.fontFamily]);
+  }, [entryThemeFontFamily]);
 
   const {
     getRootProps,
@@ -241,7 +241,7 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
         className={`${showTopToolbar ? 'h-full flex flex-col flex-1 min-h-0' : 'p-2'} relative ${withoutOutline ? '' : 'border-2 border-border'} !transition-all ${showTopToolbar ? 'overflow-hidden' : 'overflow-visible'}
         ${store.isFullscreen ? 'fixed inset-0 z-[9999] m-0 rounded-none border-none bg-background' : ''}`}
         // CUSTOM-JOURNAL: per-entry background from PersonalizeButton, see app/src/lib/personalization.ts
-        style={getBackgroundStyle(store.metadata?.personalization, isDark)}
+        style={getBackgroundStyle(blinko.config.value?.entryTheme, isDark)}
         ref={el => {
           if (el) {
             //@ts-ignore

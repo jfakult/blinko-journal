@@ -9,7 +9,7 @@ import { RootStore } from "@/store";
 import { BlinkoStore } from "@/store/blinkoStore";
 import { PageSize, PromiseCall } from "@/store/standard/PromiseState";
 import { api } from "@/lib/trpc";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useMediaQuery } from "usehooks-ts";
 import { CollapsibleCard } from "../Common/CollapsibleCard";
 import { GradientBackground } from "../Common/GradientBackground";
@@ -31,6 +31,10 @@ export const PerferSetting = observer(() => {
   const [signinFooterText, setSigninFooterText] = useState(blinko.config.value?.signinFooterText || '');
   const [customTitle, setCustomTitle] = useState(blinko.config.value?.customTitle || '');
   const user = RootStore.Get(UserStore)
+  // CUSTOM-JOURNAL: debounce for the page-background picker - a native
+  // <input type="color"> fires onChange continuously while dragging, not just
+  // on release, which without debouncing fired a mutation (and a toast) per tick.
+  const pageBgSaveTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     blinko.config.call();
@@ -429,10 +433,11 @@ export const PerferSetting = observer(() => {
         />
       } />
 
-    {/* CUSTOM-JOURNAL: page-wide background (behind the whole app, distinct from
-        the per-entry background in PersonalizeButton) - same preset system/picker
-        component, stored as the global `pageBackground` config key instead of
-        per-note metadata. Applied in Layout/index.tsx. */}
+    {/* CUSTOM-JOURNAL: page-wide background (behind the whole app - sidebar,
+        chrome, everything) - distinct from "Entry theme" (the editor toolbar's
+        palette icon), which only covers the entry/journal box itself. Both are
+        global, account-synced settings now (config.pageBackground /
+        config.entryTheme), just different visual scope. Applied in Layout/index.tsx. */}
     <Item
       type="col"
       leftContent={<div className="flex flex-col">
@@ -443,12 +448,19 @@ export const PerferSetting = observer(() => {
         <BackgroundPicker
           value={blinko.config.value?.pageBackground as BackgroundChoice | undefined}
           onChange={(value) => {
-            PromiseCall(api.config.update.mutate({ key: 'pageBackground', value: value ?? null }))
+            // CUSTOM-JOURNAL: optimistic local update (instant UI feedback) +
+            // debounced, silent (no toast) save - see the comment on
+            // pageBgSaveTimer above for why.
+            blinko.config.setValue({ ...blinko.config.value, pageBackground: value ?? null });
+            if (pageBgSaveTimer.current) clearTimeout(pageBgSaveTimer.current);
+            pageBgSaveTimer.current = setTimeout(() => {
+              PromiseCall(api.config.update.mutate({ key: 'pageBackground', value: value ?? null }), { autoAlert: false })
+            }, 300);
           }}
           onUploadImage={async (file) => {
             const filePath = await uploadImageFile(file);
             if (filePath) {
-              await PromiseCall(api.config.update.mutate({ key: 'pageBackground', value: { type: 'image', value: filePath } }))
+              await PromiseCall(api.config.update.mutate({ key: 'pageBackground', value: { type: 'image', value: filePath } }), { autoAlert: false })
             }
           }}
         />
