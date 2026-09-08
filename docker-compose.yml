@@ -11,7 +11,12 @@ services:
     build:
       context: .
       args:
-        USE_MIRROR: "true"  
+        # CUSTOM-JOURNAL: USE_MIRROR switches bun/sharp/prisma to registry.npmmirror.com,
+        # a China-region mirror upstream Blinko defaults on for users with restricted
+        # npm access there. For a US-hosted deployment this is typically slower than
+        # the real registry, not faster - and a very plausible cause of a genuine
+        # multi-minute bun install hang, not just Docker/timeout overhead.
+        USE_MIRROR: "false"
       dockerfile: ./dockerfile
     environment:
       NODE_ENV: production

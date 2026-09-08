@@ -27,7 +27,7 @@ ENV PRISMA_SKIP_POSTINSTALL_GENERATE=true
 # content hash, not by avoiding the copy itself).
 COPY package.json bun.lock turbo.json ./
 COPY app/package.json ./app/package.json
-COPY app/tauri-plugin-blinko/package.json ./app/tauri-plugin-blinko/package.json
+COPY app/tauri-plugin-blinko ./app/tauri-plugin-blinko
 COPY server/package.json ./server/package.json
 COPY shared/package.json ./shared/package.json
 COPY blinko-types/package.json ./blinko-types/package.json
