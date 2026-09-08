@@ -223,7 +223,12 @@ router.get('/profile', async (req: any, res) => {
 
 router.get('/:providerId', logOAuthRequest('Custom'), async (req, res, next) => {
   const providerId = req.params.providerId;
-  await ensureOAuthStrategies(providerId);
+  try {
+    await ensureOAuthStrategies(providerId);
+  } catch (error) {
+    console.error(`Failed to initialize OAuth provider "${providerId}":`, error);
+    return res.redirect(getOAuthCallbackUrl(`error=${encodeURIComponent('OAuth provider is unavailable')}`));
+  }
   console.log(`Custom OAuth provider ${providerId} authentication route accessed`);
   
   const predefinedProviders = ['github', 'google', 'facebook', 'twitter', 'discord'];

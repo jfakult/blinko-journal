@@ -323,6 +323,17 @@ async function bootstrap() {
       });
     }
 
+    // Relative SPA assets can resolve below an auth URL such as /api/auth/pocket-id.
+    // Normalize those asset requests before the auth router treats the final segment
+    // as an OAuth provider id.
+    app.use((req, _res, next) => {
+      const assetPath = req.url.match(/^\/api\/auth\/(.+\.(?:js|css|map|ico|png|svg|gif|webp|woff2?))$/)?.[1];
+      if (assetPath) {
+        req.url = `/${assetPath}`;
+      }
+      next();
+    });
+
     app.get('/config.js', (_req, res) => {
       res.type('application/javascript').send(
         `window.__BLINKO_CONFIG__ = ${JSON.stringify({ basePath: configuredBasePath })};`
@@ -343,6 +354,26 @@ async function bootstrap() {
     app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
       errorHandler(err, req, res, next);
     });
+
+    if (process.env.NODE_ENV === 'production') {
+      app.use((req, res, next) => {
+        if (req.method !== 'GET' || !req.accepts('html')) {
+          next();
+          return;
+        }
+
+        const indexPath = path.join(publicPath, 'index.html');
+        fs.readFile(indexPath, 'utf8', (error, html) => {
+          if (error) {
+            next(error);
+            return;
+          }
+
+          const baseHref = configuredBasePath ? `${configuredBasePath}/` : '/';
+          res.type('html').send(html.replace('<base href="/" />', `<base href="${baseHref}" />`));
+        });
+      });
+    }
 
     // Initialize scheduled jobs
     await initializeJobs();
