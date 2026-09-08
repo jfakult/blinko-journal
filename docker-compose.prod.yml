@@ -14,17 +14,18 @@ services:
   blinko-website:
     image: ghcr.io/jfakult/blinko-journal:latest
     # container_name: blinko-website
+    # CUSTOM-JOURNAL: secrets (NEXTAUTH_SECRET, DATABASE_URL) used to be hardcoded
+    # directly in this file, which is committed to git. ${VARS} below are
+    # substituted from a `.env` file docker compose auto-loads from this same
+    # directory - see .env.prod.tmpl for the template; copy it to `.env` on the
+    # actual deploy host and fill in real values (`.env` itself is gitignored,
+    # so secrets never get committed).
     environment:
       NODE_ENV: production
       NEXTAUTH_URL: https://fakult.net/journal
       NEXT_PUBLIC_BASE_URL: https://fakult.net/journal
-      NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
-      # CUSTOM-JOURNAL: points at the real external Postgres (192.168.1.203) rather
-      # than the earlier 192.168.31.69:5435 value. user/password below are almost
-      # certainly wrong - "mysecretpassword" was the local dev/example default
-      # carried over, not real credentials for this server. Fill in the actual
-      # username/password/database name before deploying.
-      DATABASE_URL: postgresql://postgres:mysecretpassword@192.168.1.203:5432/postgres
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      DATABASE_URL: ${DATABASE_URL}
       # CUSTOM-JOURNAL: see prisma/seed.ts's seedDefaultAiConfig - self-heals the
       # placeholder Ollama baseURL on next boot once this is set.
       OLLAMA_BASE_URL: http://192.168.1.208:11434
