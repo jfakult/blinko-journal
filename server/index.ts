@@ -295,6 +295,13 @@ async function bootstrap() {
       maxAge: '7d',
       immutable: true,
       setHeaders: (res: express.Response, path: string) => {
+        if (path.endsWith('/sw.js') || path.endsWith('/registerSW.js')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          res.setHeader('Pragma', 'no-cache');
+          res.setHeader('Expires', '0');
+          return;
+        }
+
         const ext = path.split('.').pop()?.toLowerCase();
         if (['png', 'webp', 'svg', 'json', 'ico', 'gif', 'mp4'].includes(ext || '')) {
           res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
@@ -359,7 +366,7 @@ async function bootstrap() {
 
           const baseHref = configuredBasePath ? `${configuredBasePath}/` : '/';
           const servedHtml = html
-            .replace('<base href="/" />', `<base href="${baseHref}" />`)
+            .replace('<base href="./" />', `<base href="${baseHref}" />`)
             .replace(/(\s(?:src|href)=["'])\.\//g, `$1${baseHref}`);
           res.type('html').send(servedHtml);
         });

@@ -85,7 +85,7 @@ export default defineConfig({
           // Maximum file size to cache (10MB)
           maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           // Don't cache API requests
-          navigateFallbackDenylist: [/^\/api\/.*/],
+          navigateFallbackDenylist: [/\/api\/.*/, /\/v1\/.*/, /\/dist\/.*/, /\/plugins\/.*/],
           // Clean old caches automatically
           cleanupOutdatedCaches: true,
           // Runtime caching strategy for better update control
