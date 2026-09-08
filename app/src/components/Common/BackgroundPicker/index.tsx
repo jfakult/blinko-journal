@@ -1,14 +1,20 @@
-// CUSTOM-JOURNAL: shared background picker UI (pattern/color/gradient swatches
-// + image upload), used by both PersonalizeButton (per-entry, writes into
-// EditorStore.metadata.personalization) and the page-wide background setting
-// in PerferSetting.tsx (writes into the global `pageBackground` config key).
-// Pulled out as its own component instead of duplicating the swatch grid
-// twice - see docs/workstreams/09-entry-personalization.md.
+// CUSTOM-JOURNAL: shared background picker UI (pattern + independent color +
+// gradient swatches + image upload), used by both PersonalizeButton
+// (per-entry, writes into EditorStore.metadata.personalization) and the
+// page-wide background setting in PerferSetting.tsx (writes into the global
+// `pageBackground` config key). Pulled out as its own component instead of
+// duplicating the swatch grid twice.
+//
+// Pattern and color are independent choices that combine (pick a texture,
+// pick what color it's tinted) rather than one flat list of pre-baked
+// options - see app/src/lib/personalization.ts for the resolution logic and
+// why this changed. Gradient/image remain separate, mutually-exclusive
+// background types.
 import { useState } from 'react';
 import { Tooltip } from '@heroui/react';
 import { useTranslation } from 'react-i18next';
 import { useTheme } from 'next-themes';
-import { PATTERN_PRESETS, COLOR_PRESETS, GRADIENT_PRESETS, BackgroundChoice, BackgroundType, resolveBackgroundStyle } from '@/lib/personalization';
+import { PATTERN_PRESETS, COLOR_PRESETS, GRADIENT_PRESETS, BackgroundChoice, resolveBackgroundStyle, resolveColorChoice } from '@/lib/personalization';
 
 interface Props {
   value?: BackgroundChoice;
@@ -24,14 +30,31 @@ export const BackgroundPicker = ({ value, onChange, onUploadImage, uploadLabel, 
   const isDark = resolvedTheme === 'dark';
   const [uploading, setUploading] = useState(false);
 
-  const isActive = (type: BackgroundType, key: string) => value?.type === type && value?.value === key;
+  const isPatternType = value?.type === 'pattern' || !value;
+  const currentPattern = isPatternType ? (value?.pattern || 'blank') : undefined;
+  const currentColor = isPatternType ? value?.color : undefined;
 
-  const setBackground = (type: BackgroundType, key: string) => {
-    if (isActive(type, key)) {
+  const setPattern = (key: string) => {
+    if (isPatternType && currentPattern === key) {
+      // Toggle off the whole background choice only if it's already blank/uncolored.
+      if (key === 'blank' && !currentColor) {
+        onChange(undefined);
+        return;
+      }
+    }
+    onChange({ type: 'pattern', pattern: key, color: value?.color });
+  };
+
+  const setColor = (colorValue: string) => {
+    onChange({ type: 'pattern', pattern: value?.pattern || 'blank', color: colorValue });
+  };
+
+  const setGradient = (key: string) => {
+    if (value?.type === 'gradient' && value.value === key) {
       onChange(undefined);
       return;
     }
-    onChange({ type, value: key });
+    onChange({ type: 'gradient', value: key });
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -50,48 +73,75 @@ export const BackgroundPicker = ({ value, onChange, onUploadImage, uploadLabel, 
 
   return (
     <div>
+      <div className="text-[11px] text-desc mb-1">{t('pattern', { defaultValue: 'Pattern' })}</div>
       <div className="flex flex-wrap gap-2 mb-2">
         {PATTERN_PRESETS.map(p => (
           <Tooltip key={p.key} content={p.label} delay={300}>
             <div
-              onClick={() => setBackground('pattern', p.key)}
+              onClick={() => setPattern(p.key)}
               className="w-7 h-7 rounded-md cursor-pointer border-2 bg-background"
               style={{
-                ...resolveBackgroundStyle({ type: 'pattern', value: p.key }, isDark),
-                borderColor: isActive('pattern', p.key) ? 'var(--primary)' : 'var(--border)',
+                ...resolveBackgroundStyle({ type: 'pattern', pattern: p.key, color: currentColor }, isDark),
+                borderColor: isPatternType && currentPattern === p.key ? 'var(--primary)' : 'var(--border)',
               }}
             />
           </Tooltip>
         ))}
       </div>
-      <div className="flex flex-wrap gap-2 mb-2">
+
+      <div className="text-[11px] text-desc mb-1">{t('color', { defaultValue: 'Color' })}</div>
+      <div className="flex flex-wrap items-center gap-2 mb-2">
         {COLOR_PRESETS.map(c => (
           <Tooltip key={c.key} content={c.label} delay={300}>
             <div
-              onClick={() => setBackground('color', c.key)}
+              onClick={() => setColor(c.key)}
               className="w-7 h-7 rounded-md cursor-pointer border-2"
               style={{
-                ...resolveBackgroundStyle({ type: 'color', value: c.key }, isDark),
-                borderColor: isActive('color', c.key) ? 'var(--primary)' : 'var(--border)',
+                backgroundColor: resolveColorChoice(c.key, isDark),
+                borderColor: isPatternType && currentColor === c.key ? 'var(--primary)' : 'var(--border)',
               }}
             />
           </Tooltip>
         ))}
+        {/* CUSTOM-JOURNAL: native color input for a fully custom color, not just
+            the 6 curated presets - styled to look like a swatch consistent with
+            the preset ones above. */}
+        <Tooltip content={t('custom-color', { defaultValue: 'Custom color' })} delay={300}>
+          <label
+            className="w-7 h-7 rounded-md cursor-pointer border-2 flex items-center justify-center relative overflow-hidden"
+            style={{
+              borderColor: isPatternType && currentColor && !COLOR_PRESETS.find(c => c.key === currentColor) ? 'var(--primary)' : 'var(--border)',
+              background: isPatternType && currentColor && !COLOR_PRESETS.find(c => c.key === currentColor)
+                ? currentColor
+                : 'conic-gradient(red, yellow, lime, cyan, blue, magenta, red)',
+            }}
+          >
+            <input
+              type="color"
+              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              value={(isPatternType && currentColor && currentColor.startsWith('#')) ? currentColor : '#f3e9d8'}
+              onChange={(e) => setColor(e.target.value)}
+            />
+          </label>
+        </Tooltip>
       </div>
+
+      <div className="text-[11px] text-desc mb-1">{t('gradient', { defaultValue: 'Gradient' })}</div>
       <div className="flex flex-wrap gap-2 mb-2">
         {GRADIENT_PRESETS.map(g => (
           <Tooltip key={g.key} content={g.label} delay={300}>
             <div
-              onClick={() => setBackground('gradient', g.key)}
+              onClick={() => setGradient(g.key)}
               className="w-7 h-7 rounded-md cursor-pointer border-2"
               style={{
                 ...resolveBackgroundStyle({ type: 'gradient', value: g.key }, isDark),
-                borderColor: isActive('gradient', g.key) ? 'var(--primary)' : 'var(--border)',
+                borderColor: value?.type === 'gradient' && value.value === g.key ? 'var(--primary)' : 'var(--border)',
               }}
             />
           </Tooltip>
         ))}
       </div>
+
       <label className="flex items-center gap-2 text-sm cursor-pointer text-desc hover:text-foreground !transition-colors">
         <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
         {uploading

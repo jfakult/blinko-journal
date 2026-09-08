@@ -61,6 +61,26 @@ export class EditorStore {
   currentTagLabel: string = ''
   metadata: any = {};
 
+  // CUSTOM-JOURNAL: mutates metadata AND persists the draft (create/edit-mode
+  // storage, same pattern as content/attachments) so a refresh mid-compose
+  // doesn't lose a personalization choice. PersonalizeButton calls this instead
+  // of mutating store.metadata directly.
+  updateMetadata(patch: Record<string, any>) {
+    this.metadata = { ...this.metadata, ...patch };
+    if (this.mode === 'create') {
+      this.blinko.createMetadataStorage.save({ metadata: this.metadata });
+    } else if (this.mode === 'edit' && this.blinko.curSelectedNote?.id) {
+      const id = Number(this.blinko.curSelectedNote.id);
+      const existing = this.blinko.editMetadataStorage.list?.find(i => Number(i.id) === id);
+      if (existing) {
+        existing.metadata = this.metadata;
+        this.blinko.editMetadataStorage.save();
+      } else {
+        this.blinko.editMetadataStorage.push({ metadata: this.metadata, id });
+      }
+    }
+  }
+
   get showIsEditText() {
     if (this.mode == 'edit') {
       try {
@@ -305,8 +325,7 @@ export class EditorStore {
   uploadCoverImage = async (file: File) => {
     const filePath = await uploadImageFile(file);
     if (filePath) {
-      if (!this.metadata) this.metadata = {};
-      this.metadata.personalization = { ...(this.metadata.personalization || {}), coverImagePath: filePath };
+      this.updateMetadata({ personalization: { ...(this.metadata?.personalization || {}), coverImagePath: filePath } });
     }
     return filePath;
   }
@@ -317,8 +336,7 @@ export class EditorStore {
   uploadBackgroundImage = async (file: File) => {
     const filePath = await uploadImageFile(file);
     if (filePath) {
-      if (!this.metadata) this.metadata = {};
-      this.metadata.personalization = { ...(this.metadata.personalization || {}), background: { type: 'image', value: filePath } };
+      this.updateMetadata({ personalization: { ...(this.metadata?.personalization || {}), background: { type: 'image', value: filePath } } });
     }
     return filePath;
   }

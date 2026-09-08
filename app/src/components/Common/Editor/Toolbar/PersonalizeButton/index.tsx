@@ -42,8 +42,7 @@ export const PersonalizeButton = observer(({ store }: Props) => {
   const personalization: EntryPersonalization = store.metadata?.personalization || {};
 
   const setPersonalization = (patch: Partial<EntryPersonalization>) => {
-    if (!store.metadata) store.metadata = {};
-    store.metadata.personalization = { ...personalization, ...patch };
+    store.updateMetadata({ personalization: { ...personalization, ...patch } });
   };
 
   const setFont = async (fontName: string) => {
@@ -76,7 +75,7 @@ export const PersonalizeButton = observer(({ store }: Props) => {
         <div>
           <IconButton
             icon="solar:palette-bold"
-            tooltip={t('personalize-entry', { defaultValue: 'Personalize this entry' })}
+            tooltip={t('entry-theme', { defaultValue: 'Entry theme' })}
             onClick={() => localStore.show = !localStore.show}
             classNames={hasCustomization ? { icon: '!text-primary' } : undefined}
           />

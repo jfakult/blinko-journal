@@ -78,6 +78,18 @@ export class BlinkoStore implements Store {
   editAttachmentsStorage = new StorageListState<{ name: string, path: string, type: string, size: number, id: number }>({
     key: 'editModeAttachments'
   });
+  // CUSTOM-JOURNAL: entry personalization (background/font, see
+  // app/src/lib/personalization.ts) previously lived only in EditorStore's
+  // in-memory `metadata` field - a refresh mid-compose lost it, unlike content
+  // and attachments, which already persist via the storages above. Same
+  // pattern applied here. See docs/workstreams/09-entry-personalization.md.
+  createMetadataStorage = new StorageState<{ metadata: any }>({
+    key: 'createModeMetadata',
+    default: { metadata: {} }
+  });
+  editMetadataStorage = new StorageListState<{ metadata: any, id: number }>({
+    key: 'editModeMetadata'
+  });
 
   searchText: string = '';
   isCreateMode: boolean = true

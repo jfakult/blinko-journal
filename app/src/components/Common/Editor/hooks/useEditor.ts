@@ -564,6 +564,11 @@ export const useEditorInit = (
         // the hidden type regardless of which page/button they're created from.
         store.noteType = NoteType.NOTE
       }
+      // CUSTOM-JOURNAL: load any draft personalization (background/font) for this
+      // in-progress create-mode entry, same as content/attachments already do via
+      // createContentStorage/createAttachmentsStorage - previously metadata reset to
+      // {} on every mount, so a refresh mid-compose silently lost the choice.
+      store.metadata = { ...(blinko.createMetadataStorage.value?.metadata || {}) }
       if (searchParams.get('tagId')) {
         try {
           api.tags.fullTagNameById.query({ id: Number(searchParams.get('tagId')) }).then(res => {
@@ -581,7 +586,11 @@ export const useEditorInit = (
       // into the editor store on edit, so PersonalizeButton reflects the current
       // choice instead of appearing blank - metadata otherwise defaults to {} and
       // is only ever set on send (editorStore.tsx), never read from curSelectedNote.
-      store.metadata = { ...(blinko.curSelectedNote?.metadata || {}) }
+      // A local draft override (editMetadataStorage) takes priority if present, same
+      // as editContentStorage does for unsaved edits to content - a refresh mid-edit
+      // shouldn't lose an in-progress personalization change either.
+      const draftMetadata = blinko.editMetadataStorage.list?.find(i => Number(i.id) == Number(blinko.curSelectedNote?.id))
+      store.metadata = { ...(blinko.curSelectedNote?.metadata || {}), ...(draftMetadata?.metadata || {}) }
     }
   }, [mode, searchParams.get('path'), searchParams.get('tagId'), blinko.curSelectedNote?.id]);
 };

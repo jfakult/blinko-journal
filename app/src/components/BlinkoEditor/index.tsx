@@ -154,6 +154,7 @@ export const BlinkoEditor = observer(({ mode, onSended, onHeightChange, isInDial
           await blinko.upsertNote.call({ type: noteType, references, refresh: false, content: blinko.noteContent, attachments: files.map(i => { return { name: i.name, path: i.uploadPath, size: i.size, type: i.type } }), metadata })
           blinko.createAttachmentsStorage.clear()
           blinko.createContentStorage.clear()
+          blinko.createMetadataStorage.clear()
           if (blinko.noteTypeDefault == NoteType.NOTE && searchParams.get('path') != 'notes') {
             await navigate('/?path=notes')
             blinko.forceQuery++
@@ -182,6 +183,10 @@ export const BlinkoEditor = observer(({ mode, onSended, onHeightChange, isInDial
               blinko.editAttachmentsStorage.remove(index)
               blinko.editContentStorage.remove(index)
             }
+            // CUSTOM-JOURNAL: uses removeByFind (matches by id) rather than reusing
+            // the attachments-list index above, since editMetadataStorage's list
+            // isn't guaranteed to stay index-aligned with editAttachmentsStorage's.
+            blinko.editMetadataStorage.removeByFind(i => Number(i.id) === Number(blinko.curSelectedNote!.id))
           } catch (error) {
             console.error(error)
           }

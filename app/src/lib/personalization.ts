@@ -3,19 +3,31 @@ import { getBlinkoEndpoint } from './blinkoEndpoint';
 
 // CUSTOM-JOURNAL: shared types/constants for personalization (background
 // pattern/color/gradient/image, cover image, font), both per-entry
-// (notes.metadata.personalization) and page-wide (a global config key, see
-// PageBackgroundSetting.tsx). See docs/workstreams/09-entry-personalization.md
-// for the original research; this file was revised after feedback that (a)
-// presets need light/dark variants so a choice never looks wrong after a
-// theme switch, and (b) backgrounds should support images and gradients too,
-// not just flat colors/patterns, and should be choosable for the whole page,
-// not just the entry card.
+// (notes.metadata.personalization) and page-wide (a global `pageBackground`
+// config key, applied in Layout/index.tsx). See
+// docs/workstreams/09-entry-personalization.md for the original research.
+//
+// Revision history worth knowing if you're reading this after another round
+// of feedback: color used to be one of four mutually-exclusive background
+// *types* (pattern OR color OR gradient OR image) with patterns baked to a
+// single fixed texture color per app theme. Reworked so pattern and color are
+// independent: 'pattern' type always carries its own `color` (a preset key OR
+// any custom hex from a native color picker), and the pattern texture's own
+// tint is derived from that chosen color's luminance rather than the app
+// theme - so a pattern looks right no matter which color (preset or fully
+// custom) it's paired with, not just the two app-theme states.
 
-export type BackgroundType = 'pattern' | 'color' | 'gradient' | 'image';
+export type BackgroundType = 'pattern' | 'gradient' | 'image';
 
 export interface BackgroundChoice {
   type: BackgroundType;
-  value: string; // preset key for pattern/color/gradient, or an image path/URL for 'image'
+  // type 'pattern': PATTERN_PRESETS key, default 'blank' (flat color, no texture)
+  pattern?: string;
+  // type 'pattern': a COLOR_PRESETS key (e.g. 'sage') OR a raw hex string (e.g.
+  // '#3a5f2b') from the custom color picker - resolveBackgroundStyle handles both.
+  color?: string;
+  // type 'gradient' | 'image': GRADIENT_PRESETS key, or an image file path/URL
+  value?: string;
 }
 
 export interface EntryPersonalization {
@@ -24,14 +36,13 @@ export interface EntryPersonalization {
   fontFamily?: string; // a `fonts.name` value (e.g. 'Lora', 'Caveat'), or 'default'
 }
 
-interface ThemedPatternDef {
+interface PatternDef {
   key: string;
   label: string;
-  // Tileable SVG data-URIs, one per theme, so the same "grain"/"dots"/etc.
-  // choice keeps looking like subtle paper texture instead of a mismatched
-  // light pattern floating on a dark background (or vice versa).
-  light: string;
-  dark: string;
+  /** Tileable SVG data-URI, parameterized by texture fill color (hex, no #
+   * needed to be stripped - callers pass e.g. '#8a6d4a') and its opacity.
+   * 'blank' has no svg fn - it's flat color, no texture at all. */
+  svg?: (fillHex: string, opacity: number) => string;
 }
 
 interface ThemedColorDef {
@@ -50,41 +61,39 @@ interface ThemedGradientDef {
 
 const svgDataUri = (svg: string) => `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
 
-const grain = (fillOpacityRgb: string, alpha: string) =>
-  svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 ${fillOpacityRgb}  0 0 0 ${alpha} 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`);
-
-export const PATTERN_PRESETS: ThemedPatternDef[] = [
-  { key: 'blank', label: 'Blank', light: 'none', dark: 'none' },
+export const PATTERN_PRESETS: PatternDef[] = [
+  { key: 'blank', label: 'Blank' },
   {
     key: 'grain',
     label: 'Paper grain',
-    light: grain('0.55  0 0 0 0 0.42  0 0 0 0 0.30', '0.05'),
-    dark: grain('0.85  0 0 0 0 0.72  0 0 0 0 0.55', '0.06'),
+    svg: (hex, opacity) => {
+      const { r, g, b } = hexToRgb(hex);
+      return svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='matrix' values='0 0 0 0 ${r}  0 0 0 0 ${g}  0 0 0 0 ${b}  0 0 0 ${opacity} 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`);
+    },
   },
   {
     key: 'linen',
     label: 'Linen weave',
-    light: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 0h16v1H0zM0 8h16v1H0z' fill='#8a6d4a' fill-opacity='0.05'/><path d='M0 0v16h1V0zM8 0v16h1V0z' fill='#8a6d4a' fill-opacity='0.05'/></svg>`),
-    dark: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 0h16v1H0zM0 8h16v1H0z' fill='#e8b074' fill-opacity='0.07'/><path d='M0 0v16h1V0zM8 0v16h1V0z' fill='#e8b074' fill-opacity='0.07'/></svg>`),
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><path d='M0 0h16v1H0zM0 8h16v1H0z' fill='${hex}' fill-opacity='${opacity}'/><path d='M0 0v16h1V0zM8 0v16h1V0z' fill='${hex}' fill-opacity='${opacity}'/></svg>`),
   },
   {
     key: 'dots',
     label: 'Dot grid',
-    light: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='2' cy='2' r='1.1' fill='#8a6d4a' fill-opacity='0.14'/></svg>`),
-    dark: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='2' cy='2' r='1.1' fill='#e8b074' fill-opacity='0.16'/></svg>`),
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='20' height='20'><circle cx='2' cy='2' r='1.1' fill='${hex}' fill-opacity='${opacity + 0.06}'/></svg>`),
   },
   {
     key: 'lines',
     label: 'Ruled lines',
-    light: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='#8a6d4a' stroke-opacity='0.12' stroke-width='1'/></svg>`),
-    dark: svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='#e8b074' stroke-opacity='0.14' stroke-width='1'/></svg>`),
+    svg: (hex, opacity) => svgDataUri(`<svg xmlns='http://www.w3.org/2000/svg' width='40' height='28'><line x1='0' y1='27' x2='40' y2='27' stroke='${hex}' stroke-opacity='${opacity + 0.04}' stroke-width='1'/></svg>`),
   },
 ];
 
 // Warm accent colors - light variant is a soft pastel tint, dark variant is
 // the same hue pulled toward the app's dark warm-paper palette
 // (--secondbackground: #241a10-ish territory) instead of staying pastel-bright
-// against dark UI chrome.
+// against dark UI chrome. A custom color (any hex, via the picker in
+// BackgroundPicker) is stored/resolved independently of this list - see
+// resolveColorChoice.
 export const COLOR_PRESETS: ThemedColorDef[] = [
   { key: 'cream', label: 'Cream', light: '#f3e9d8', dark: '#2b2216' },
   { key: 'amber', label: 'Amber', light: '#f7e0c8', dark: '#332618' },
@@ -112,6 +121,34 @@ export function getGradientPreset(key?: string) {
   return GRADIENT_PRESETS.find(p => p.key === key);
 }
 
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const clean = hex.replace('#', '');
+  const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
+  const num = parseInt(full, 16);
+  if (isNaN(num) || full.length !== 6) return { r: 0.5, g: 0.5, b: 0.5 };
+  return { r: ((num >> 16) & 255) / 255, g: ((num >> 8) & 255) / 255, b: (num & 255) / 255 };
+}
+
+/** Relative luminance (0 = black, 1 = white) - used to decide whether a
+ * pattern's texture should be dark-on-this-color or light-on-this-color,
+ * so it works for ANY chosen color (preset or fully custom), not just the
+ * two app-theme states. */
+function luminance(hex: string): number {
+  const { r, g, b } = hexToRgb(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Resolves a `color` value (either a COLOR_PRESETS key or a raw custom hex)
+ * to an actual hex string for the given theme. Presets adapt to the app
+ * theme; a custom hex is used as-is (the user's explicit choice overrides
+ * the "auto-adapt to theme" convenience presets give you). */
+export function resolveColorChoice(color: string | undefined, isDark: boolean): string {
+  if (!color) return isDark ? COLOR_PRESETS[0]!.dark : COLOR_PRESETS[0]!.light;
+  const preset = getColorPreset(color);
+  if (preset) return isDark ? preset.dark : preset.light;
+  return color; // raw custom hex
+}
+
 /** Moderate scrim so an uploaded image stays legible behind entry text,
  * without fully hiding the photo. Darker in dark mode (dark text-on-light
  * assumptions flip) - this is a deliberate compromise, not per-image contrast
@@ -121,30 +158,33 @@ function imageScrim(isDark: boolean): string {
   return isDark ? 'rgba(20, 16, 10, 0.55)' : 'rgba(255, 250, 240, 0.55)';
 }
 
-/** Resolves a background choice (pattern/color/gradient/image key or path)
- * into actual CSS for the current theme. Used for both per-entry (BlinkoCard,
- * Editor) and page-wide (Layout) backgrounds - same choice shape, same
- * resolution logic either way. */
+/** Resolves a background choice into actual CSS for the current theme. Used
+ * for both per-entry (BlinkoCard, Editor) and page-wide (Layout) backgrounds -
+ * same choice shape, same resolution logic either way. */
 export function resolveBackgroundStyle(bg: BackgroundChoice | undefined, isDark: boolean): CSSProperties {
   if (!bg) return {};
   switch (bg.type) {
-    case 'color': {
-      const preset = getColorPreset(bg.value);
-      if (!preset) return {};
-      return { backgroundColor: isDark ? preset.dark : preset.light };
+    case 'pattern': {
+      const baseColor = resolveColorChoice(bg.color, isDark);
+      const style: CSSProperties = { backgroundColor: baseColor };
+      const pattern = getPatternPreset(bg.pattern);
+      if (pattern?.svg) {
+        // Dark texture on a light base color, light texture on a dark one -
+        // derived from the actual chosen color, so this works whether the
+        // color came from a theme-aware preset or a fully custom hex.
+        const isLightBase = luminance(baseColor) > 0.5;
+        const textureHex = isLightBase ? '#5c4a30' : '#e8b074';
+        const opacity = isLightBase ? 0.08 : 0.1;
+        style.backgroundImage = pattern.svg(textureHex, opacity);
+        style.backgroundRepeat = 'repeat';
+      }
+      return style;
     }
     case 'gradient': {
       const preset = getGradientPreset(bg.value);
       if (!preset) return {};
       const [from, to] = isDark ? preset.dark : preset.light;
       return { backgroundImage: `linear-gradient(135deg, ${from}, ${to})` };
-    }
-    case 'pattern': {
-      const preset = getPatternPreset(bg.value);
-      if (!preset) return {};
-      const image = isDark ? preset.dark : preset.light;
-      if (image === 'none') return {};
-      return { backgroundImage: image, backgroundRepeat: 'repeat' };
     }
     case 'image': {
       if (!bg.value) return {};
