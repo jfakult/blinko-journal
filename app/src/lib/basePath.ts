@@ -15,6 +15,7 @@ export const basePath = normalizeBasePath(window.__BLINKO_CONFIG__?.basePath || 
 
 export function withBasePath(path: string): string {
   if (!path.startsWith('/') || path.startsWith('//')) return path;
+  if (basePath && (path === basePath || path.startsWith(`${basePath}/`))) return path;
   return `${basePath}${path}` || '/';
 }
 

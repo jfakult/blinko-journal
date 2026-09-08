@@ -15,6 +15,7 @@ import { AiStore } from "@/store/aiStore";
 import { parseAbsoluteToLocal } from "@internationalized/date";
 import i18n from "@/lib/i18n";
 import { BlinkoShareDialog } from "../BlinkoShareDialog";
+import { getBlinkoEndpoint } from "@/lib/blinkoEndpoint";
 import { BaseStore } from "@/store/baseStore";
 import { PluginApiStore } from "@/store/plugin/pluginApiStore";
 import { ToastPlugin } from "@/store/module/Toast/Toast";
@@ -250,7 +251,7 @@ const handlePublic = () => {
     title: i18n.t('share'),
     isDismissable: false,
     content: <BlinkoShareDialog defaultSettings={{
-      shareUrl: blinko.curSelectedNote?.shareEncryptedUrl ? window.location.origin + '/share/' + blinko.curSelectedNote?.shareEncryptedUrl : undefined,
+      shareUrl: blinko.curSelectedNote?.shareEncryptedUrl ? getBlinkoEndpoint('/share/' + blinko.curSelectedNote.shareEncryptedUrl) : undefined,
       expiryDate: blinko.curSelectedNote?.shareExpiryDate ?? undefined,
       password: blinko.curSelectedNote?.sharePassword ?? '',
       isShare: blinko.curSelectedNote?.isShare

@@ -358,7 +358,10 @@ async function bootstrap() {
           }
 
           const baseHref = configuredBasePath ? `${configuredBasePath}/` : '/';
-          res.type('html').send(html.replace('<base href="/" />', `<base href="${baseHref}" />`));
+          const servedHtml = html
+            .replace('<base href="/" />', `<base href="${baseHref}" />`)
+            .replace(/(\s(?:src|href)=["'])\.\//g, `$1${baseHref}`);
+          res.type('html').send(servedHtml);
         });
       });
     }
