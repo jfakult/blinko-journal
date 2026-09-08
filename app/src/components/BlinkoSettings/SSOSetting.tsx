@@ -16,6 +16,7 @@ import { ZOAuth2ProviderSchema } from "@shared/lib/types"
 import { z } from "zod"
 import { PasswordInput } from "../Common/PasswordInput"
 import { Select, SelectItem } from "@heroui/react"
+import { withBasePath } from '@/lib/basePath';
 
 const OAUTH_TEMPLATES = {
   custom: {
@@ -257,7 +258,7 @@ const UpdateSSOProvider = observer(({ provider }: { provider?: z.infer<typeof ZO
       value={store.clientSecret}
       onChange={e => { store.clientSecret = e.target.value }}
     />
-    <Alert color={'warning'} title={t('redirect-url')} description={`${window.location.origin}/api/auth/callback/${store.id || store.template}`} />
+    <Alert color={'warning'} title={t('redirect-url')} description={`${window.location.origin}${withBasePath(`/api/auth/callback/${store.id || store.template}`)}`} />
     <div className="text-xs text-default-500 mt-1">
       {t('please-add-this-url-to-your-oauth-provider-settings')}
     </div>

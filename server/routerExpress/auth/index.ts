@@ -8,22 +8,27 @@ import { verifyToken, generateToken, generateApiToken } from '../../lib/helper';
 
 const router = express.Router();
 
+function getOAuthCallbackUrl(query: string): string {
+  const publicBaseUrl = (process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_BASE_URL || '').replace(/\/+$/, '');
+  return `${publicBaseUrl}/oauth-callback?${query}` || `/oauth-callback?${query}`;
+}
+
 function handleOAuthCallback(req: any, res: any, err: any, user: any, info: any) {
   if (err) {
     console.error('OAuth authentication error:', err);
-    return res.redirect(`/oauth-callback?error=${encodeURIComponent(err.message || 'Authentication failed')}`);
+    return res.redirect(getOAuthCallbackUrl(`error=${encodeURIComponent(err.message || 'Authentication failed')}`));
   }
 
   if (!user) {
     if (info && info.requiresTwoFactor) {
-      return res.redirect(`/oauth-callback?requiresTwoFactor=true&userId=${info.userId}`);
+      return res.redirect(getOAuthCallbackUrl(`requiresTwoFactor=true&userId=${info.userId}`));
     }
-    return res.redirect(`/oauth-callback?error=${encodeURIComponent(info?.message || 'Authentication failed')}`);
+    return res.redirect(getOAuthCallbackUrl(`error=${encodeURIComponent(info?.message || 'Authentication failed')}`));
   }
 
   console.log('oauth verify success, user:', user.id);
   
-  return res.redirect(`/oauth-callback?success=true&token=${encodeURIComponent(user.token)}`);
+  return res.redirect(getOAuthCallbackUrl(`success=true&token=${encodeURIComponent(user.token)}`));
 }
 
 const logOAuthRequest = (provider: string) => (req: any, res: any, next: any) => {

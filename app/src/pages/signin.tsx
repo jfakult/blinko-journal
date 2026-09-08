@@ -154,7 +154,7 @@ export default function Component() {
                     isLoading={loadingProvider === provider.id}
                     onPress={() => {
                       setLoadingProvider(provider.id);
-                      window.location.href = `${getBlinkoEndpoint()}api/auth/${provider.id}`;
+                      window.location.href = getBlinkoEndpoint(`/api/auth/${provider.id}`);
                     }}
                   >
                     {t('sign-in-with-provider', { provider: provider.name })}
