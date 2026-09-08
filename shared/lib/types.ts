@@ -56,6 +56,15 @@ export const ZUserPerferConfigKey = z.union([
   z.literal('defaultHomePage'),
   z.literal('desktopHotkeys'),
   z.literal('systemTray'),
+  // CUSTOM-JOURNAL: entry-personalization additions (see
+  // docs/workstreams/09-entry-personalization.md) - without being listed
+  // here, config.update's mutation treats them as *global* config, which
+  // requires superadmin ("You are not allowed to update global config").
+  // These are personal preferences, same category as theme/themeColor/
+  // fontStyle just above, not site-wide admin settings.
+  z.literal('soundEnabled'),
+  z.literal('pageBackground'),
+  z.literal('entryTheme'),
 ]);
 
 export const ZConfigKey = z.union([
