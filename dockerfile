@@ -25,7 +25,7 @@ ENV PRISMA_SKIP_POSTINSTALL_GENERATE=true
 # second `COPY . .` below re-copies these same manifest files too, which is harmless
 # (identical content, and Docker no-ops an unchanged layer's downstream steps based on
 # content hash, not by avoiding the copy itself).
-COPY package.json bun.lock ./
+COPY package.json bun.lock turbo.json ./
 COPY app/package.json ./app/package.json
 COPY app/tauri-plugin-blinko/package.json ./app/tauri-plugin-blinko/package.json
 COPY server/package.json ./server/package.json

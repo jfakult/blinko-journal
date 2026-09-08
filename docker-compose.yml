@@ -15,8 +15,8 @@ services:
       dockerfile: ./dockerfile
     environment:
       NODE_ENV: production
-      NEXTAUTH_URL: http://localhost:1111/journal
-      NEXT_PUBLIC_BASE_URL: http://localhost:1111/journal
+      NEXTAUTH_URL: http://localhost:1111
+      NEXT_PUBLIC_BASE_URL: http://localhost:1111
       NEXTAUTH_SECRET: my_ultra_secure_nextauth_secret
       DATABASE_URL: postgresql://postgres:mysecretpassword@postgres:5432/postgres
     depends_on:
