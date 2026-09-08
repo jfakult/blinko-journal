@@ -334,6 +334,33 @@ async function bootstrap() {
       next();
     });
 
+    if (process.env.NODE_ENV === 'production') {
+      app.use((req, res, next) => {
+        if (
+          req.method !== 'GET' ||
+          !req.accepts('html') ||
+          req.path.startsWith('/api/') ||
+          req.path.startsWith('/v1/') ||
+          req.path.startsWith('/dist/') ||
+          req.path.startsWith('/plugins/')
+        ) {
+          next();
+          return;
+        }
+
+        const indexPath = path.join(publicPath, 'index.html');
+        fs.readFile(indexPath, 'utf8', (error, html) => {
+          if (error) {
+            next(error);
+            return;
+          }
+
+          const baseHref = configuredBasePath ? `${configuredBasePath}/` : '/';
+          res.type('html').send(html.replace('<base href="/" />', `<base href="${baseHref}" />`));
+        });
+      });
+    }
+
     app.get('/config.js', (_req, res) => {
       res.type('application/javascript').send(
         `window.__BLINKO_CONFIG__ = ${JSON.stringify({ basePath: configuredBasePath })};`
@@ -354,26 +381,6 @@ async function bootstrap() {
     app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
       errorHandler(err, req, res, next);
     });
-
-    if (process.env.NODE_ENV === 'production') {
-      app.use((req, res, next) => {
-        if (req.method !== 'GET' || !req.accepts('html')) {
-          next();
-          return;
-        }
-
-        const indexPath = path.join(publicPath, 'index.html');
-        fs.readFile(indexPath, 'utf8', (error, html) => {
-          if (error) {
-            next(error);
-            return;
-          }
-
-          const baseHref = configuredBasePath ? `${configuredBasePath}/` : '/';
-          res.type('html').send(html.replace('<base href="/" />', `<base href="${baseHref}" />`));
-        });
-      });
-    }
 
     // Initialize scheduled jobs
     await initializeJobs();

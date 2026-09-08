@@ -71,7 +71,7 @@ const getLinks = (useStream = false) => {
         return op.context.skipBatch === true;
       },
       true: httpLink({
-        url: ('/api/trpc'),
+        url: getBlinkoEndpoint('/api/trpc'),
         transformer: superjson,
         headers,
         // Increase timeout for large file uploads (5 minutes)
@@ -83,7 +83,7 @@ const getLinks = (useStream = false) => {
         }
       }),
       // when condition is false, use batching
-      false: httpBatchLink({
+          url: getBlinkoEndpoint('/api/trpc'),
         url: ('/api/trpc'),
         transformer: superjson,
         headers,
