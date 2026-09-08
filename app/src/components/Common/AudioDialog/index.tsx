@@ -6,6 +6,7 @@ import { DialogStandaloneStore } from "@/store/module/DialogStandalone";
 import { requestMicrophonePermission, checkMicrophonePermission } from "@/lib/tauriHelper";
 import { Button, Card, CardBody } from "@heroui/react";
 import { useTranslation } from "react-i18next";
+import { playStartChime } from "@/lib/sound";
 
 interface MyAudioRecorderProps {
   onComplete?: (file: File) => void;
@@ -156,6 +157,7 @@ export const MyAudioRecorder = ({ onComplete }: MyAudioRecorderProps) => {
         const stream = await startRecording();
         if (stream) {
           setupAudioAnalyser(stream);
+          playStartChime(); // CUSTOM-JOURNAL: see docs/workstreams/09-entry-personalization.md §3.2
         } else {
           console.error('Failed to start recording');
           return;

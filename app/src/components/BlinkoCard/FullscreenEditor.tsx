@@ -14,6 +14,7 @@ import { MarkdownRender } from "@/components/Common/MarkdownRender";
 import { FilesAttachmentRender } from "../Common/AttachmentRender";
 import { ReferencesContent } from "./referencesContent";
 import { useTranslation } from "react-i18next";
+import { getBackgroundStyle, getFontStyle } from "@/lib/personalization";
 
 interface FullscreenEditorProps {
   blinkoItem: BlinkoItem;
@@ -241,17 +242,20 @@ export const FullscreenEditor = observer(({ blinkoItem, isOpen, onClose }: Fulls
             /* Preview mode - render with MarkdownRender */
             <div
               className="flex-1 overflow-y-auto min-h-0 py-4"
-              style={{ height: isPc ? 'calc(100vh - 100px)' : 'calc(100vh - 80px)' }}
+              // CUSTOM-JOURNAL: same per-entry background as the collapsed card (BlinkoCard/index.tsx)
+              style={{ height: isPc ? 'calc(100vh - 100px)' : 'calc(100vh - 80px)', ...getBackgroundStyle(blinkoItem.metadata?.personalization) }}
               onDoubleClick={handleSwitchToEdit}
             >
-              <MarkdownRender
-                content={blinko.noteDetail.value?.content ?? blinkoItem.content}
-                onChange={(newContent) => {
-                  blinkoItem.content = newContent;
-                  blinko.upsertNote.call({ id: blinkoItem.id, content: newContent, refresh: false });
-                }}
-                largeSpacing={true}
-              />
+              <div style={getFontStyle(blinkoItem.metadata?.personalization)}>
+                <MarkdownRender
+                  content={blinko.noteDetail.value?.content ?? blinkoItem.content}
+                  onChange={(newContent) => {
+                    blinkoItem.content = newContent;
+                    blinko.upsertNote.call({ id: blinkoItem.id, content: newContent, refresh: false });
+                  }}
+                  largeSpacing={true}
+                />
+              </div>
               <ReferencesContent blinkoItem={blinko.noteDetail.value ?? blinkoItem} className="my-4" />
               <div className={blinkoItem.attachments?.length != 0 ? 'my-2' : ''}>
                 <FilesAttachmentRender files={blinko.noteDetail.value?.attachments ?? blinkoItem.attachments ?? []} preview />

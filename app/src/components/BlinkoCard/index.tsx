@@ -7,7 +7,7 @@ import { Note } from '@shared/lib/types';
 import { ShowEditBlinkoModel } from "../BlinkoRightClickMenu";
 import { useMediaQuery } from "usehooks-ts";
 import { _ } from '@/lib/lodash';
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { CardBlogBox } from "./cardBlogBox";
 import { NoteContent } from "./noteContent";
 import { helper } from "@/lib/helper";
@@ -21,6 +21,9 @@ import { useLocation } from "react-router-dom";
 import { SwipeableCard } from "./SwipeableCard";
 import { api } from "@/lib/trpc";
 import { FullscreenEditor } from "./FullscreenEditor";
+import { EntryCoverImage } from "./EntryCoverImage";
+import { getBackgroundStyle, getFontStyle } from "@/lib/personalization";
+import { FontManager } from "@/lib/fontManager";
 
 
 export type BlinkoItem = Note & {
@@ -51,6 +54,17 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
 
   // Set isExpand flag to prevent drag when fullscreen editor is open for this note
   blinkoItem.isExpand = blinko.fullscreenEditorNoteId === blinkoItem.id;
+
+  // CUSTOM-JOURNAL: ensure a chosen per-entry font's @font-face is actually
+  // loaded when viewing a card (not just when it was picked in the editor) -
+  // getFontStyle() only sets the CSS font-family value, it can't load the
+  // stylesheet itself.
+  const cardFontFamily = blinkoItem.metadata?.personalization?.fontFamily;
+  useEffect(() => {
+    if (cardFontFamily && cardFontFamily !== 'default') {
+      FontManager.getScopedFontFamily(cardFontFamily).catch(() => {});
+    }
+  }, [cardFontFamily]);
 
   if (forceBlog) {
     blinkoItem.isBlog = true
@@ -119,6 +133,9 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
             <Card
               onContextMenu={e => !isPc && e.stopPropagation()}
               shadow='none'
+              // CUSTOM-JOURNAL: per-entry background from PersonalizeButton, see
+              // app/src/lib/personalization.ts / docs/workstreams/09-entry-personalization.md
+              style={getBackgroundStyle(blinkoItem.metadata?.personalization)}
               className={`
                 flex flex-col p-4 ${glassEffect ? 'bg-transparent' : 'bg-background'} !transition-all group/card
                 ${isPc && !blinkoItem.isShare && !withoutHoverAnimation ? 'hover:translate-y-1' : ''}
@@ -128,13 +145,19 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
               `}
             >
               <div className="w-full">
+                <EntryCoverImage blinkoItem={blinkoItem} />
                 <CardHeader blinkoItem={blinkoItem} blinko={blinko} isShareMode={isShareMode} isExpanded={defaultExpanded} account={account} />
 
-                {blinkoItem.isBlog && (
-                  <CardBlogBox blinkoItem={blinkoItem} isExpanded={defaultExpanded} />
-                )}
+                {/* CUSTOM-JOURNAL: per-entry font applies to the entry text itself, not the
+                    header (title/date/menu) or footer (tags/actions) - a handwriting font on
+                    UI chrome would look odd, on the writing itself it's the point. */}
+                <div style={getFontStyle(blinkoItem.metadata?.personalization)}>
+                  {blinkoItem.isBlog && (
+                    <CardBlogBox blinkoItem={blinkoItem} isExpanded={defaultExpanded} />
+                  )}
 
-                {!blinkoItem.isBlog && <NoteContent blinkoItem={blinkoItem} blinko={blinko} isExpanded={defaultExpanded} isShareMode={isShareMode} />}
+                  {!blinkoItem.isBlog && <NoteContent blinkoItem={blinkoItem} blinko={blinko} isExpanded={defaultExpanded} isShareMode={isShareMode} />}
+                </div>
 
                 {/* Custom Footer Slots */}
                 {pluginApi.customCardFooterSlots

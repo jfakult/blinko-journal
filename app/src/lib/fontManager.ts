@@ -533,6 +533,28 @@ class FontManagerClass {
   }
 
   /**
+   * CUSTOM-JOURNAL: resolve a font-family CSS value for SCOPED (per-entry)
+   * use, without touching document.body/:root the way applyFont() does.
+   * Ensures the font is actually loaded (reuses the same loadFont()
+   * mechanism applyFont() backgrounds) and returns the family string with
+   * the correct category fallback stack for the caller to apply as an
+   * inline style on just its own container.
+   */
+  public async getScopedFontFamily(fontName: string): Promise<string> {
+    if (fontName === 'default') return '';
+    const fontConfig = this.fontRegistry.get(fontName);
+    if (!fontConfig) {
+      console.warn(`FontManager: Font "${fontName}" not found in registry`);
+      return '';
+    }
+    await this.loadFont(fontName).catch((error) => {
+      console.warn(`FontManager: scoped font load failed for "${fontName}":`, error);
+    });
+    const fallback = this.getFallbackStack(fontConfig.category || 'sans-serif');
+    return `"${fontName}", ${fallback}`;
+  }
+
+  /**
    * Apply font to vditor editor elements
    */
   public applyFontToVditor(fontFamily: string): void {

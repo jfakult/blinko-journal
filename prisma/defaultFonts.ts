@@ -378,6 +378,32 @@ export const cdnFonts: FontSeed[] = [
     isSystem: false,
     sortOrder: 211,
   },
+  // CUSTOM-JOURNAL: warm English serif + handwriting fonts for the journal
+  // entry-personalization feature. The existing 'serif'/'handwriting' entries
+  // above (Noto Serif SC/TC, Ma Shan Zheng) are CJK-only, not a fit for an
+  // English-language warm-paper journal.
+  {
+    name: 'Lora',
+    displayName: 'Lora (warm serif)',
+    url: 'https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap',
+    fileData: null,
+    isLocal: false,
+    weights: [400, 500, 600, 700],
+    category: 'serif',
+    isSystem: false,
+    sortOrder: 212,
+  },
+  {
+    name: 'Caveat',
+    displayName: 'Caveat (handwriting)',
+    url: 'https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&display=swap',
+    fileData: null,
+    isLocal: false,
+    weights: [400, 500, 600, 700],
+    category: 'handwriting',
+    isSystem: false,
+    sortOrder: 213,
+  },
 ];
 
 /**

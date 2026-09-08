@@ -577,8 +577,13 @@ export const useEditorInit = (
       }
     } else {
       store.noteType = toNoteTypeEnum(blinko.curSelectedNote?.type)
+      // CUSTOM-JOURNAL: load this note's existing personalization (background/font)
+      // into the editor store on edit, so PersonalizeButton reflects the current
+      // choice instead of appearing blank - metadata otherwise defaults to {} and
+      // is only ever set on send (editorStore.tsx), never read from curSelectedNote.
+      store.metadata = { ...(blinko.curSelectedNote?.metadata || {}) }
     }
-  }, [mode, searchParams.get('path'), searchParams.get('tagId')]);
+  }, [mode, searchParams.get('path'), searchParams.get('tagId'), blinko.curSelectedNote?.id]);
 };
 
 

@@ -410,6 +410,22 @@ export const PerferSetting = observer(() => {
         </Tooltip>
       } />
 
+    {/* CUSTOM-JOURNAL: mute toggle for the start/finish chimes, see
+        docs/workstreams/09-entry-personalization.md §3.2 and app/src/lib/sound.ts */}
+    <Item
+      leftContent={<>{t('entry-sounds', { defaultValue: 'Entry sounds' })}</>}
+      rightContent={
+        <Switch
+          isSelected={blinko.config.value?.soundEnabled !== false}
+          onChange={e => {
+            PromiseCall(api.config.update.mutate({
+              key: 'soundEnabled',
+              value: e.target.checked
+            }))
+          }}
+        />
+      } />
+
     {
       user.isSuperAdmin && (
         <Item

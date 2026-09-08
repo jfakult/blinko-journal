@@ -18,6 +18,7 @@ import { NoteType } from '@shared/lib/types';
 import { eventBus } from '@/lib/event';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
 import axiosInstance from '@/lib/axios';
+import { playFinishChime } from '@/lib/sound';
 
 export class EditorStore {
   files: FileType[] = []
@@ -296,6 +297,24 @@ export class EditorStore {
     }
   }
 
+  // CUSTOM-JOURNAL: upload a "cover" image for this entry - reuses the same
+  // /api/file/upload endpoint as uploadFiles() above, but stores the result
+  // in metadata.personalization.coverImagePath instead of pushing into the
+  // attachments array, since a cover photo is a per-entry display choice,
+  // not an inline attachment. See docs/workstreams/09-entry-personalization.md §3.3.
+  uploadCoverImage = async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const { onUploadProgress } = RootStore.Get(ToastPlugin).setSizeThreshold(40).uploadProgress(file);
+    const response = await axiosInstance.post(getBlinkoEndpoint('/api/file/upload'), formData, { onUploadProgress });
+    const filePath = response.data?.filePath;
+    if (filePath) {
+      if (!this.metadata) this.metadata = {};
+      this.metadata.personalization = { ...(this.metadata.personalization || {}), coverImagePath: filePath };
+    }
+    return filePath;
+  }
+
   handlePasteFile = ({ fileName, filePath, type, size }: { fileName: string, filePath: string, type: string, size: number }) => {
     const extension = helper.getFileExtension(fileName)
     const previewType = helper.getFileType(type, fileName)
@@ -380,6 +399,7 @@ export class EditorStore {
         references: this.references,
         metadata: this.metadata
       });
+      playFinishChime(); // CUSTOM-JOURNAL: see docs/workstreams/09-entry-personalization.md §3.2
       this.clearEditor();
       RootStore.Get(AiStore).isWriting = false;
       eventBus.emit('editor:setFullScreen', false);
