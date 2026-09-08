@@ -52,7 +52,11 @@ const Home = observer(() => {
     } else if (isAllView) {
       return blinko.noteList;
     } else {
-      return blinko.blinkoList;
+      // CUSTOM-JOURNAL: this journal only uses NoteType.NOTE (the "blinko"/quick-capture
+      // and "todo" types are hidden from nav, see baseStore.ts routerList) - the root
+      // path with no ?path= param used to fall through to the quick-capture list, now
+      // it shows the same notes list so it isn't a dead/empty landing view.
+      return blinko.noteOnlyList;
     }
   }, [isNotesView, isTodoView, isArchivedView, isTrashView, isAllView, blinko]);
 

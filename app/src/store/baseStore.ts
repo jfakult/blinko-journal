@@ -12,24 +12,17 @@ export class BaseStore implements Store {
   constructor() {
     makeAutoObservable(this);
   }
+  // CUSTOM-JOURNAL: this journal only uses NoteType.NOTE - the "blinko" (quick-capture)
+  // and "todo" nav entries are removed rather than hidden via CSS, since the type
+  // selection they drove also had to change at the note-creation source (see
+  // useEditor.ts) for entries to actually land in the right place. "notes" is now
+  // the first/default entry.
   routerList = [
-    {
-      title: 'blinko',
-      href: '/',
-      shallow: true,
-      icon: 'basil:lightning-outline',
-    },
     {
       title: 'notes',
       shallow: true,
       href: '/?path=notes',
       icon: 'hugeicons:note',
-    },
-    {
-      title: 'todo',
-      shallow: true,
-      href: '/?path=todo',
-      icon: 'solar:bill-check-linear',
     },
     {
       title: 'analytics',
@@ -158,8 +151,6 @@ export class BaseStore implements Store {
         this.currentTitle = t('total');
       } else if (searchParams.get('path') == 'notes') {
         this.currentTitle = 'notes';
-      } else if (searchParams.get('path') == 'todo') {
-        this.currentTitle = 'todo';
       } else if (searchParams.get('path') == 'archived') {
         this.currentTitle = 'archived';
       } else if (pathname == '/resources') {
@@ -169,7 +160,9 @@ export class BaseStore implements Store {
       } else if (pathname == '/plugin') {
         this.currentTitle = 'plugin';
       } else if (pathname == '/') {
-        this.currentTitle = 'blinko';
+        // CUSTOM-JOURNAL: root with no ?path= now shows the notes list too (see
+        // index.tsx), so the header title should match rather than say 'blinko'.
+        this.currentTitle = 'notes';
       } else {
         this.currentTitle = this.currentRouter?.title ?? '';
       }

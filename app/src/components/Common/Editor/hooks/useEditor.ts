@@ -554,12 +554,15 @@ export const useEditorInit = (
 
   useEffect(() => {
     if (mode == 'create') {
-      if (searchParams.get('path') == 'notes') {
-        store.noteType = NoteType.NOTE
-      } else if (searchParams.get('path') == 'todo') {
+      if (searchParams.get('path') == 'todo') {
         store.noteType = NoteType.TODO
       } else {
-        store.noteType = NoteType.BLINKO
+        // CUSTOM-JOURNAL: this journal only uses NoteType.NOTE - "blinko" (quick-capture)
+        // is hidden from nav, so anywhere that used to default to NoteType.BLINKO
+        // (including ?path=notes, which was previously redundant with this default)
+        // now defaults to NoteType.NOTE instead, so new entries never get created as
+        // the hidden type regardless of which page/button they're created from.
+        store.noteType = NoteType.NOTE
       }
       if (searchParams.get('tagId')) {
         try {
