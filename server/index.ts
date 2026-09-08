@@ -339,10 +339,12 @@ async function bootstrap() {
         if (
           req.method !== 'GET' ||
           !req.accepts('html') ||
+          path.extname(req.path) !== '' ||
           req.path.startsWith('/api/') ||
           req.path.startsWith('/v1/') ||
           req.path.startsWith('/dist/') ||
-          req.path.startsWith('/plugins/')
+          req.path.startsWith('/plugins/') ||
+          req.path === '/health'
         ) {
           next();
           return;

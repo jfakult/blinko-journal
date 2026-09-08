@@ -83,8 +83,8 @@ const getLinks = (useStream = false) => {
         }
       }),
       // when condition is false, use batching
-          url: getBlinkoEndpoint('/api/trpc'),
-        url: ('/api/trpc'),
+      false: httpBatchLink({
+        url: getBlinkoEndpoint('/api/trpc'),
         transformer: superjson,
         headers,
         // Increase timeout for large file uploads (5 minutes)
@@ -95,7 +95,7 @@ const getLinks = (useStream = false) => {
           });
         }
       }),
-    });;
+    });
   }
 };
 
