@@ -14,6 +14,12 @@ interface MonthlyStats {
     tagName: string;
     count: number;
   }[];
+  // CUSTOM-JOURNAL: see docs/workstreams/08-analytics-view.md — populated once
+  // notes.metadata.location.name is actually written by a capture flow.
+  locationStats?: {
+    locationName: string;
+    count: number;
+  }[];
 }
 
 export class AnalyticsStore implements Store {
