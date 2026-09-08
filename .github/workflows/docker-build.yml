@@ -3,7 +3,7 @@ name: Build and Push Docker Image
 on:
   push:
     branches:
-      - fix/multi-select-duplicate-and-export-auth
+      - main
   workflow_dispatch:
 
 env:
@@ -34,7 +34,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=fixed
+            type=raw,value=latest
             type=sha,prefix={{branch}}-
 
       - name: Build and push Docker image
