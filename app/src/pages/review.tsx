@@ -10,11 +10,9 @@ import { RootStore } from '@/store';
 import { BlinkoStore } from '@/store/blinkoStore';
 import { MarkdownRender } from '@/components/Common/MarkdownRender';
 import dayjs from '@/lib/dayjs';
-import { NoteType } from '@shared/lib/types';
 import { Icon } from '@/components/Common/Iconify/icons';
 import { useTranslation } from 'react-i18next';
 import { Button, Tooltip } from '@heroui/react';
-import { LightningIcon, NotesIcon } from '@/components/Common/Icons';
 import { PromiseCall } from '@/store/standard/PromiseState';
 import { api } from '@/lib/trpc';
 import { showTipsDialog } from '@/components/Common/TipsDialog';
@@ -40,9 +38,6 @@ const App = observer(() => {
       store.currentIndex = _swiper.activeIndex
     },
     isRandomReviewMode: false,
-    get isBlinko() {
-      return store.currentNote?.type == NoteType.BLINKO
-    }
   }))
 
   useEffect(() => {
@@ -124,17 +119,6 @@ const App = observer(() => {
                   <div className='bg-background p-0 w-full overflow-y-scroll h-full'>
                     <div className='flex items-center gap-2 mb-2'>
                       <div className='text-xs text-desc'>{dayjs(i.createdAt).fromNow()}</div>
-                      {
-                        store.isBlinko ?
-                          <div className='flex items-center justify-start ml-auto'>
-                            <Icon className='text-yellow-500' icon="basil:lightning-solid" width="12" height="12" />
-                            <div className='text-desc text-xs font-bold ml-1'>{t('blinko')}</div>
-                          </div> :
-                          <div className='flex items-center justify-start  ml-auto'>
-                            <Icon className='text-blue-500' icon="solar:notes-minimalistic-bold-duotone" width="12" height="12" />
-                            <div className='text-desc text-xs font-bold ml-1'>{t('note')}</div>
-                          </div>
-                      }
                     </div>
                     <MarkdownRender content={i.content} onChange={(newContent) => {
                       i.content = newContent
@@ -159,18 +143,6 @@ const App = observer(() => {
                 }} isIconOnly color='primary' startContent={<Icon icon="ci:check-all" width="24" height="24" />} />
               </Tooltip>
             }
-            <Tooltip content={store.isBlinko ? t('convert-to-note') : t('convert-to-blinko')}>
-              <Button isIconOnly onPress={async e => {
-                if (!store.currentNote) return
-                await blinko.upsertNote.call({ id: store.currentNote.id, type: store.isBlinko ? NoteType.NOTE : NoteType.BLINKO })
-                await api.notes.reviewNote.mutate({ id: store.currentNote!.id! })
-                await blinko.dailyReviewNoteList.call()
-              }}
-                color='default'
-                startContent={store.isBlinko ? <NotesIcon /> : <LightningIcon />}>
-              </Button>
-            </Tooltip>
-
             <Tooltip content={t('edit')} >
               <Button onPress={async e => {
                 if (!store.currentNote) return

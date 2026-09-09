@@ -26,10 +26,27 @@ services:
       NEXT_PUBLIC_BASE_URL: https://fakult.net/journal
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
       DATABASE_URL: ${DATABASE_URL}
-      # CUSTOM-JOURNAL: see prisma/seed.ts's seedDefaultAiConfig - self-heals the
-      # placeholder Ollama baseURL on next boot once this is set.
-      OLLAMA_BASE_URL: http://192.168.1.208:11434
-      # WHISPER_BASE_URL: http://192.168.1.208:8000/v1  # uncomment once deployed (infra/whisper-service)
+      # CUSTOM-JOURNAL: see prisma/seed.ts's seedDefaultAiConfig - self-heals
+      # provider rows/config on next boot whenever one of these changes, so
+      # swapping a model is just an `.env` edit + `docker compose up -d`
+      # restart, no image rebuild. Host/URL vars have working hardcoded
+      # defaults baked in below (`:-default` syntax) so an unset `.env` still
+      # boots; model vars fall back to seed.ts's own defaults (see its doc
+      # comment) if left unset here too - set them in `.env` (see
+      # .env.prod.tmpl) rather than editing this committed file.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://192.168.1.208:11434}
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
+      OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-llava}
+      # WHISPER_BASE_URL is intentionally NOT given a `:-default` fallback:
+      # seed.ts treats "unset" as "voice transcription isn't deployed yet"
+      # and skips creating the Whisper provider/voiceModelId entirely (see its
+      # doc comment). Set WHISPER_BASE_URL=http://whisper:8000/v1 in `.env`
+      # only once docker-compose.whisper.yml is actually deployed alongside
+      # this file - a default here would make seed.ts wire up a voice model
+      # pointing at a container that doesn't exist yet.
+      WHISPER_BASE_URL: ${WHISPER_BASE_URL:-}
+      WHISPER_MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-medium}
     # depends_on:
     #   postgres:
     #     condition: service_healthy

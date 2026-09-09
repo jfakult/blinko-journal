@@ -172,22 +172,6 @@ const AiMessage = memo(({ content, withoutAnimation = false, withStreamAnimation
               <div className={`${isMobile ? 'opacity-70' : 'opacity-0 group-hover:opacity-100'} transition-opacity duration-200 mb-4`}>
                 <div className="flex gap-2 backdrop-blur-sm rounded-full p-1 items-center">
                   <IconButton
-                    tooltip={i18n.t('add-to-blinko')}
-                    icon="basil:lightning-solid"
-                    classNames={{
-                      icon: 'text-yellow-500'
-                    }}
-                    onClick={() => {
-                      RootStore.Get(BlinkoStore).upsertNote.call({
-                        content: content,
-                        type: NoteType.BLINKO,
-                      })
-                    }}
-                    size={20}
-                    containerSize={25}
-                  />
-
-                  <IconButton
                     tooltip={i18n.t('add-to-note')}
                     icon="solar:notes-minimalistic-bold-duotone"
                     classNames={{

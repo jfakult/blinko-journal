@@ -10,7 +10,6 @@ import { RootStore } from "@/store";
 import { DialogStore } from "@/store/module/Dialog";
 import { BlinkoEditor } from "../BlinkoEditor";
 import { useEffect, useState } from "react";
-import { NoteType } from "@shared/lib/types";
 import { AiStore } from "@/store/aiStore";
 import { parseAbsoluteToLocal } from "@internationalized/date";
 import i18n from "@/lib/i18n";
@@ -375,24 +374,6 @@ export const SelectAllItem = observer(() => {
   </div>
 })
 
-export const ConvertItemFunction = () => {
-  const blinko = RootStore.Get(BlinkoStore)
-  blinko.upsertNote.call({
-    id: blinko.curSelectedNote?.id,
-    type: blinko.curSelectedNote?.type == NoteType.NOTE ? NoteType.BLINKO : NoteType.NOTE
-  })
-}
-
-export const ConvertItem = observer(() => {
-  const { t } = useTranslation();
-  const blinko = RootStore.Get(BlinkoStore)
-  return <div className="flex items-start gap-2">
-    <Icon icon="ri:exchange-2-line" width="20" height="20" />
-    <div>{t('convert-to')} {blinko.curSelectedNote?.type == NoteType.NOTE ?
-      <span className='text-yellow-500'>{t('blinko')}</span> : <span className='text-blue-500'>{t('note')}</span>}</div>
-  </div>
-})
-
 export const TopItem = observer(() => {
   const { t } = useTranslation();
   const blinko = RootStore.Get(BlinkoStore)
@@ -504,10 +485,6 @@ export const BlinkoRightClickMenu = observer(() => {
       <EditTimeItem />
     </ContextMenuItem>
 
-    <ContextMenuItem onClick={ConvertItemFunction}>
-      <ConvertItem />
-    </ContextMenuItem>
-
     <ContextMenuItem onClick={handleTop}>
       <TopItem />
     </ContextMenuItem>
@@ -595,7 +572,6 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
         </>
       ) : null}
       <DropdownItem key="EditTimeItem" onPress={() => ShowEditTimeModel()}> <EditTimeItem /></DropdownItem>
-      <DropdownItem key="ConvertItem" onPress={ConvertItemFunction}> <ConvertItem /></DropdownItem>
       <DropdownItem key="TopItem" onPress={handleTop}> <TopItem />  </DropdownItem>
       <DropdownItem key="ArchivedItem" onPress={handleArchived}>
         <ArchivedItem />

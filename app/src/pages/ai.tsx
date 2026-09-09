@@ -45,37 +45,37 @@ const AIPage = observer(() => {
 
   const buttons = [
     {
-      label: t('writing'),
-      icon: 'hugeicons:quill-write-02',
+      label: t('recall'),
+      icon: 'solar:clock-circle-bold',
       color: '#0057FF',
-      prompt: t('ai-prompt-writing')
+      prompt: t('ai-prompt-recall')
     },
     {
-      label: t('coding'),
-      icon: 'solar:code-bold',
+      label: t('search-past-entries'),
+      icon: 'hugeicons:search-list-01',
       color: '#FF9500',
-      prompt: t('ai-prompt-coding')
+      prompt: t('ai-prompt-search')
     },
     {
-      label: t('translation'),
-      icon: 'hugeicons:message-translate',
+      label: t('trend-analysis'),
+      icon: 'hugeicons:analytics-01',
       color: '#2FBC52',
-      prompt: t('ai-prompt-translation', { lang: i18n.language })
+      prompt: t('ai-prompt-trends')
     }
   ];
 
   const suggestionActions = [
     {
-      prompt: t('ai-prompt-writing-content')
+      prompt: t('ai-prompt-suggestion-mood')
     },
     {
-      prompt: t('ai-prompt-translation-content')
+      prompt: t('ai-prompt-suggestion-find-person')
     },
     {
-      prompt: t('ai-prompt-delete-content')
+      prompt: t('ai-prompt-suggestion-tag-untagged')
     },
     {
-      prompt: t('ai-prompt-coding-content')
+      prompt: t('ai-prompt-suggestion-archive-summary')
     }
   ]
 
@@ -86,7 +86,7 @@ const AIPage = observer(() => {
       }}
       className={`flex flex-col items-center ${aiStore.isChatting ? 'pt-0' : 'pt-[10vh] md:pt-[20vh]'} w-full gap-4 relative  md:h-[calc(100vh_-_80px)]`}>
       {!aiStore.isChatting ? (
-        <div className="flex justify-center w-full">
+        <div className="flex flex-col items-center w-full">
           <motion.div
             initial={{ width: 0, scaleX: 0 }}
             animate={{ width: "auto", scaleX: 1 }}
@@ -103,6 +103,14 @@ const AIPage = observer(() => {
             className="text-3xl font-bold overflow-hidden whitespace-nowrap origin-left"
           >
             {t('welcome-to-blinko', { name: userStore.userInfo?.value?.nickName.toUpperCase() ?? userStore.userInfo?.value?.name.toUpperCase() })}!
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4, duration: 0.6 }}
+            className="text-desc text-sm mt-2 text-center px-4"
+          >
+            {t('ai-page-subtitle')}
           </motion.div>
         </div>
       ) : (

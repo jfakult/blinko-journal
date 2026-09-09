@@ -88,7 +88,7 @@ services:
     # Known/placeholder destinations blinko-website needs to reach over
     # blinko-egress (see docs/workstreams/07-network-hardening.md for the
     # full table and why):
-    #   - Ollama:        http://<OLLAMA_LAN_IP_OR_HOSTNAME>:<OLLAMA_PORT>   (placeholder, default port 11434)
+    #   - Ollama:        http://192.168.1.208:11434                        (known -- matches OLLAMA_BASE_URL's default in .env.prod.tmpl)
     #   - Pocket-ID:     https://sso.fakult.net                             (known)
     #   - Reverse proxy: <REVERSE_PROXY_LAN_IP_OR_HOSTNAME>                 (placeholder -- whatever fronts fakult.net/journal)
 

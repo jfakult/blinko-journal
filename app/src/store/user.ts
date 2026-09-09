@@ -33,7 +33,6 @@ export class UserStore implements Store {
   languageInitialized: boolean = false;
   themeInitialized: boolean = false;
   isHubInitialized: boolean = false;
-  isUseAIInitialized: boolean = false;
 
   get id(): string {
     return this.tokenData.value?.user?.id || '';
@@ -208,17 +207,17 @@ export class UserStore implements Store {
     const config = await this.blinko.config.call()
     this.updateAppTitle(config?.customTitle);
     const handleFeatureRoute = (
-      featureKey: 'hub' | 'ai',
+      featureKey: 'hub',
       storageKey: string,
       routeConfig: {
         title: string;
         href: string;
         icon: string;
       } & any,
-      stateFlag: 'isHubInitialized' | 'isUseAIInitialized'
+      stateFlag: 'isHubInitialized'
     ) => {
       const savedValue = localStorage.getItem(storageKey);
-      const configKey = featureKey === 'ai' ? 'mainModelId' : `isUseBlinkoHub`;
+      const configKey = 'isUseBlinkoHub';
       const configValue = config?.[configKey];
       const currentValue = configValue ?? (savedValue === 'true');
 
@@ -244,12 +243,6 @@ export class UserStore implements Store {
         }
       }
     };
-
-    handleFeatureRoute('ai', 'useAI', {
-      title: "AI",
-      href: '/ai',
-      icon: 'hugeicons:ai-beautify'
-    }, 'isUseAIInitialized');
 
     handleFeatureRoute('hub', 'hubEnabled', {
       title: "hub",

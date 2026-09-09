@@ -109,7 +109,7 @@ telemetry, no crash reporters, no cloud AI providers (the 0%-telemetry /
 
 | Destination | Reached by | Port | Purpose | Status |
 |---|---|---|---|---|
-| Ollama | `blinko-website` | `<OLLAMA_LAN_IP_OR_HOSTNAME>`, default `11434` | LLM calls (auto-tagging) and embeddings (RAG search) — see Workstream 4 | **Placeholder** — exact LAN IP/hostname, and whether it's reachable via a shared Docker network instead, unknown from this worktree. Fill in before deploying. |
+| Ollama | `blinko-website` | `192.168.1.208`, `11434` | LLM calls (auto-tagging) and embeddings (RAG search) — see Workstream 4 | Known — matches `OLLAMA_BASE_URL`'s default in `.env.prod.tmpl`. Whether it's reachable via a shared Docker network instead of a LAN IP is still unconfirmed from this worktree. |
 | Pocket-ID | `blinko-website` | `sso.fakult.net`, `443` | OIDC SSO login (Workstream 1) | Known |
 | Reverse proxy | `blinko-website` | `<REVERSE_PROXY_LAN_IP_OR_HOSTNAME>` | Inbound proxying to `fakult.net/journal` (arrives via published port 1111, doesn't require blinko-website to initiate anything); outbound leg kept allowlisted only in case OIDC callback/redirect URL handling needs it — confirm with the audit | **Placeholder** — exact hostname/IP of whatever fronts `fakult.net` unknown from this worktree. |
 | *(nothing else)* | — | — | — | Any other destination seen in the audit is a bug: an unexpected update-checker, telemetry beacon, crash reporter, or a cloud AI call that shouldn't exist per the hard constraint. Investigate and block it, don't allowlist it. |

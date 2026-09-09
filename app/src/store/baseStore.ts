@@ -17,12 +17,21 @@ export class BaseStore implements Store {
   // selection they drove also had to change at the note-creation source (see
   // useEditor.ts) for entries to actually land in the right place. "notes" is now
   // the first/default entry.
+  // CUSTOM-JOURNAL: upstream only shows "ai" once a chat model (config.mainModelId)
+  // is configured (see user.ts::initializeSettings, now hub-only) - for this journal
+  // the RAG-backed chat/recall page is a core feature, not an optional extra, so it's
+  // a static entry here instead of conditionally spliced in at runtime.
   routerList = [
     {
       title: 'notes',
       shallow: true,
       href: '/?path=notes',
       icon: 'hugeicons:note',
+    },
+    {
+      title: 'ai',
+      href: '/ai',
+      icon: 'hugeicons:ai-beautify',
     },
     {
       title: 'analytics',

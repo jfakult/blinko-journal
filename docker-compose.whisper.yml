@@ -9,8 +9,9 @@
 #   - This service is genuinely optional/independent infra (you could point
 #     Blinko at a different ASR endpoint entirely, or run this on a different
 #     host) rather than a core part of "the app," so it reads cleaner split out.
-#   - Deploy both together with:
-#       docker compose -f docker-compose.prod.yml -f docker-compose.whisper.yml up -d
+#   - Deploy together with the network overlay (required - see the `networks:`
+#     note below):
+#       docker compose -f docker-compose.prod.yml -f docker-compose.whisper.yml -f docker-compose.network.yml up -d
 #
 # Project: speaches (https://github.com/speaches-ai/speaches), MIT licensed.
 # Formerly published as "faster-whisper-server" (fedirz/faster-whisper-server);
@@ -29,20 +30,16 @@
 # verification, and latency/accuracy benchmarking are explicitly deferred to
 # whoever runs this on the real Unraid box (see the doc above).
 
-networks:
-  blinko-network:
-    # Must be the SAME network docker-compose.prod.yml's blinko-website/postgres
-    # services attach to, so Blinko can reach this container at `whisper:8000`
-    # by Docker DNS. NOTE: as of this writing docker-compose.prod.yml declares
-    # `blinko-network` with `driver: host` and has the `networks:` block on
-    # blinko-website commented out — under a *host*-driver network there is no
-    # bridge/DNS to resolve `whisper` by service name at all. That file needs
-    # to move to a normal bridge network (the compose default) with both
-    # blinko-website and this service actually attached to `blinko-network`
-    # for the `whisper:8000` address other workstreams are coded against to
-    # work. Flagging for whoever finalizes docker-compose.prod.yml
-    # (Workstream 1 / Workstream 7) rather than editing that file here.
-    external: true
+# CUSTOM-JOURNAL: no top-level `networks:` block here on purpose. This file
+# used to declare its own `blinko-network: external: true` and expect that
+# network to already exist, but Workstream 7 (docker-compose.network.yml)
+# superseded that plan - it defines `blinko-internal` (a real bridge network,
+# not external) and already attaches whisper's service to it below. Declaring
+# a second, different external network here would just make `docker compose
+# up` fail looking for a `blinko-network` that no one creates anymore. Deploy
+# this file together with docker-compose.network.yml (see the header comment
+# above) so `blinko-internal` exists when this file's `networks:` reference
+# below resolves.
 
 services:
   whisper:
@@ -54,8 +51,9 @@ services:
     # one exists at deploy time, for reproducibility.
     image: ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3
     restart: always
-    networks:
-      - blinko-network
+    # networks: attached by docker-compose.network.yml (blinko-internal only -
+    # see this file's top-of-file comment; this file no longer declares its
+    # own network, deploy it together with the overlay).
     ports:
       # Match the docker-compose.prod.yml convention (host:container). Only
       # needs to be reachable from the Blinko container on blinko-network in
@@ -87,7 +85,10 @@ services:
       #     other changes needed since the model id is also sent per-request.
       # PRELOAD_MODELS pulls + warms this model at container startup instead
       # of on the first transcription request (avoids a slow first note).
-      PRELOAD_MODELS: '["Systran/faster-whisper-medium"]'
+      # CUSTOM-JOURNAL: driven by the same WHISPER_MODEL var the deploy host's
+      # .env sets for prisma/seed.ts (server/seed.js reads it to register the
+      # matching AiModels row) - change it in one place, both sides follow.
+      PRELOAD_MODELS: '["${WHISPER_MODEL:-Systran/faster-whisper-medium}"]'
 
       # --- Inference device -------------------------------------------------
       WHISPER__INFERENCE_DEVICE: cuda

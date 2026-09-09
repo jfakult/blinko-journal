@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { Modal, ModalContent, ModalBody, Input, Button, Divider } from '@heroui/react';
+import { Modal, ModalContent, ModalBody, Input, Button, Divider, Tooltip } from '@heroui/react';
 import { Icon } from '@/components/Common/Iconify/icons';
 import { useTranslation } from 'react-i18next';
 import { RootStore } from '@/store';
@@ -13,7 +13,6 @@ import { ScrollArea } from '../Common/ScrollArea';
 import { ResourceItemPreview } from '@/components/BlinkoResource/ResourceItem';
 import { allSettings } from '@/pages/settings';
 import { BlinkoCard } from '../BlinkoCard';
-import { ConvertTypeButton } from '../BlinkoCard/cardFooter';
 import { LoadingAndEmpty } from '../Common/LoadingAndEmpty';
 import { helper } from '@/lib/helper';
 import { useLocation, useSearchParams, useNavigate } from 'react-router-dom';
@@ -272,19 +271,22 @@ export const GlobalSearch = observer(({ isOpen, onOpenChange }: GlobalSearchProp
         <HighlightText text={note?.content?.substring(0, 60) || t('no-content')} searchTerm={store.searchQuery} />
       </div>
       <div className="ml-auto hidden md:block" onClick={(e) => e.stopPropagation()}>
-        <ConvertTypeButton
-          blinkoItem={note}
-          tooltipPlacement="right"
-          toolTipClassNames={{
+        <Tooltip
+          placement="right"
+          classNames={{
             base: 'bg-content1 border border-default-200 shadow-lg',
             content: 'p-0',
           }}
-          tooltip={
+          content={
             <div className="max-w-[400px] p-0 rounded-2xl bg-transparent">
               <BlinkoCard blinkoItem={note} withoutHoverAnimation withoutBoxShadow className='!border-none' />
             </div>
           }
-        />
+        >
+          <div className="flex items-center justify-start cursor-default">
+            <Icon className="text-blue-500" icon="solar:notes-minimalistic-bold-duotone" width="12" height="12" />
+          </div>
+        </Tooltip>
       </div>
     </div>
   );
