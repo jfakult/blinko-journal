@@ -16,6 +16,38 @@ import { NoteType } from '@shared/lib/types';
 import { Icon } from '@/components/Common/Iconify/icons';
 import { DndContext, closestCenter, DragOverlay } from '@dnd-kit/core';
 import { useDragCard, DraggableBlinkoCard } from '@/hooks/useDragCard';
+import FilterPop from '@/components/Common/PopoverFloat/filterPop';
+
+// CUSTOM-JOURNAL: surfaces filter/sort more prominently than the header-only
+// icon, per the user's ask for "a more mouse-friendly way to filter and sort
+// entries" -- reuses FilterPop's existing Apply/Reset logic, just a second,
+// more visible trigger for it, right under the new-entry box.
+const FilterSortSummaryBar = observer(() => {
+  const { t } = useTranslation();
+  const blinko = RootStore.Get(BlinkoStore);
+  const cfg = blinko.noteListFilterConfig;
+
+  const parts: string[] = [];
+  if (cfg.tagId) {
+    const tagName = blinko.tagList.value?.falttenTags?.find((tag: any) => tag.id === cfg.tagId)?.name;
+    if (tagName) parts.push(`${t('tag')}: ${tagName}`);
+  }
+  if (cfg.startDate || cfg.endDate) {
+    parts.push(t('time-range'));
+  }
+  const sortLabel =
+    cfg.sortField === 'size' ? (cfg.orderBy === 'desc' ? t('longest') : t('shortest'))
+    : cfg.sortField === 'mood' ? t('mood')
+    : (cfg.orderBy === 'desc' ? t('newest') : t('oldest'));
+  parts.push(`${t('sort')}: ${sortLabel}`);
+
+  return (
+    <div className="px-2 md:px-6 flex items-center gap-2 mt-2 text-tiny text-default-400">
+      <FilterPop />
+      <span className="truncate">{parts.join(' · ')}</span>
+    </div>
+  );
+});
 
 interface TodoGroup {
   displayDate: string;
@@ -142,6 +174,7 @@ const Home = observer(() => {
         }} />
       </div>}
       {(!isPc || blinko.config.value?.hidePcEditor) && <BlinkoAddButton />}
+      {store.showEditor && <FilterSortSummaryBar />}
 
       <LoadingAndEmpty
         isLoading={currentListState.isLoading}

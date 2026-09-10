@@ -1,5 +1,16 @@
 # Workstream 9 — Entry Personalization (Research)
 
+> **Update — see `docs/workstreams/10-tags-and-mood.md`.** §1h and §3.7's
+> "mood already surfaces as a tag, don't invent a parallel mood system"
+> reasoning is now partially superseded: a structured, AI-scored
+> `moodAxis`/`notes.moodScores` system (valence + 8 basic emotions, 0-100
+> each) was added after this doc was written. It's still not a *manual*
+> mood picker (this doc's actual warning) — it's AI-generated, same spirit
+> as the `#mood/*` tags described below, just numeric/structured instead of
+> free-text. A future personalization feature wanting mood-awareness (e.g.
+> mood-tinted card accents) now has a real structured field
+> (`notes.moodScores`) to read, not just `#mood/*` tag-parsing.
+
 Status: **research only** — no code changed. This doc is written so a future
 implementation session can start directly from it without re-reading the
 source tree. All file paths and code excerpts below were read from the repo

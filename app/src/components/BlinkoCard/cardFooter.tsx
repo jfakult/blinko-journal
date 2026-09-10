@@ -4,6 +4,7 @@ import { Note } from '@shared/lib/types';
 import { BlinkoStore } from '@/store/blinkoStore';
 import { useTranslation } from 'react-i18next';
 import { CommentCount } from './commentButton';
+import { TagList } from '@/components/Common/TagList';
 import { BlinkoItem } from '.';
 
 interface CardFooterProps {
@@ -15,7 +16,8 @@ interface CardFooterProps {
 export const CardFooter = ({ blinkoItem, blinko, isShareMode }: CardFooterProps) => {
   const { t } = useTranslation();
   return (
-    <div className="flex items-center">
+    <div className="flex items-center gap-2">
+      <TagList tags={blinkoItem.tags as any} createdAt={blinkoItem.createdAt} updatedAt={blinkoItem.updatedAt} className="flex-1 min-w-0" />
       <RightContent blinkoItem={blinkoItem} t={t} />
     </div>
   );

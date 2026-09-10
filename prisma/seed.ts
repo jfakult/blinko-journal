@@ -99,6 +99,7 @@ async function main() {
   }
   await seedDefaultFonts();
   await seedDefaultAiConfig();
+  await seedDefaultMoodAxes();
 }
 
 /**
@@ -225,19 +226,47 @@ async function seedDefaultAiConfig() {
     console.log('ℹ WHISPER_BASE_URL not set — skipping voice transcription setup (voiceModelId left unconfigured). Set it and restart once the Whisper service is deployed.');
   }
 
-  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture who, where, how the writer felt, and what kind of occasion this was. Rules:
-1. **Categories to draw from**: people mentioned (by name or relationship, e.g. #people/mom, #people/sarah), places (e.g. #places/home, #places/lake-house), mood or emotional tone (e.g. #mood/grateful, #mood/anxious, #mood/excited, #mood/tired), and occasion or event type (e.g. #occasion/birthday, #occasion/milestone, #occasion/everyday, #occasion/trip).
+  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture who, where, how the writer felt, what kind of occasion this was, and what it's about. Rules:
+1. **Categories to draw from**: people mentioned (by name or relationship, e.g. #people/mom, #people/sarah), places (e.g. #places/home, #places/lake-house), mood or emotional tone (e.g. #mood/grateful, #mood/anxious, #mood/excited, #mood/tired), occasion or event type (e.g. #occasion/birthday, #occasion/milestone, #occasion/everyday, #occasion/trip), and topic/theme -- the subject the entry is mainly about (e.g. #theme/work, #theme/relationships, #theme/health, #theme/finances, #theme/creative, #theme/personal-growth).
 2. **Reuse first**: prefer an existing tag from the provided tag list over inventing a new one, if it genuinely fits.
-3. **New tags**: if nothing existing fits, create a new tag under one of the four categories above using the #category/value pattern.
-4. **Avoid generic note-taking tags**: do NOT use tags like #todo, #idea, #project, #meeting, #work, #reference unless the entry is genuinely about work — this is a personal journal, not a notes app.
+3. **New tags**: if nothing existing fits, create a new tag under one of the five categories above using the #category/value pattern.
+4. **Avoid generic note-taking tags**: do NOT use tags like #todo, #idea, #project, #meeting unless the entry is genuinely about work — this is a personal journal, not a notes app.
 5. **Language**: match the language of the entry.
-6. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #people/mom,#places/home,#mood/grateful,#occasion/everyday`;
+6. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #people/mom,#places/home,#mood/grateful,#occasion/everyday,#theme/relationships`;
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
   await setConfigIfMissing('aiTagsPrompt', journalTagsPrompt);
 
   console.log('✅ AI config seed/self-heal pass complete.');
+}
+
+// CUSTOM-JOURNAL: seeds the default mood axes (emotional valence + 8 basic
+// emotions) AI-scores every note against, once, if the account has none yet.
+// Non-destructive and idempotent like seedDefaultAiConfig above -- safe to
+// re-run on every boot. The user can add/rename/delete axes afterward from
+// AI Settings, this is just a sensible starting set.
+async function seedDefaultMoodAxes() {
+  const existingCount = await prisma.moodAxis.count();
+  if (existingCount > 0) return;
+
+  console.log('🎭 Seeding default mood axes...');
+  const defaultAxes: { positiveLabel: string; negativeLabel: string | null }[] = [
+    { positiveLabel: 'positive', negativeLabel: 'negative' }, // emotional valence
+    { positiveLabel: 'anger', negativeLabel: null },
+    { positiveLabel: 'anxiety', negativeLabel: null },
+    { positiveLabel: 'joy', negativeLabel: null },
+    { positiveLabel: 'sadness', negativeLabel: null },
+    { positiveLabel: 'surprise', negativeLabel: null },
+    { positiveLabel: 'fear', negativeLabel: null },
+    { positiveLabel: 'excitement', negativeLabel: null },
+    { positiveLabel: 'gratitude', negativeLabel: null },
+  ];
+
+  for (let i = 0; i < defaultAxes.length; i++) {
+    await prisma.moodAxis.create({ data: { ...defaultAxes[i], sortOrder: i } });
+  }
+  console.log(`   ✅ Seeded ${defaultAxes.length} mood axes.`);
 }
 
 export async function seedDefaultFonts() {

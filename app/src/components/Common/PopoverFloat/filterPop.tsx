@@ -3,11 +3,16 @@ import { Popover, PopoverContent, PopoverTrigger, Select, SelectItem, Button, Ra
 import { useTranslation } from "react-i18next";
 import { RootStore } from "@/store";
 import { BlinkoStore } from "@/store/blinkoStore";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { RangeCalendar } from "@heroui/react";
 import { today, getLocalTimeZone } from "@internationalized/date";
 import dayjs from "@/lib/dayjs";
 import TagSelector from "@/components/Common/TagSelector";
+import { api } from "@/lib/trpc";
+
+// CUSTOM-JOURNAL: composite "field:direction[:axisId]" sort value, parsed in
+// handleApplyFilter into noteListFilterConfig.sortField/orderBy/moodAxisId.
+const DATE_DESC = 'date:desc';
 
 export default function FilterPop() {
   const { t } = useTranslation();
@@ -25,6 +30,23 @@ export default function FilterPop() {
   const [tagStatus, setTagStatus] = useState<string>("all");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
+  const [sortValue, setSortValue] = useState<string>(DATE_DESC);
+  const [moodAxes, setMoodAxes] = useState<{ id: number; positiveLabel: string; negativeLabel?: string | null }[]>([]);
+
+  useEffect(() => {
+    api.ai.moodAxisList.query().then(setMoodAxes).catch(() => {});
+  }, []);
+
+  const sortOptions = [
+    { value: 'date:desc', label: t('newest') },
+    { value: 'date:asc', label: t('oldest') },
+    { value: 'size:desc', label: t('longest') },
+    { value: 'size:asc', label: t('shortest') },
+    ...moodAxes.flatMap(axis => [
+      { value: `mood:${axis.id}:desc`, label: `${t('most')} ${axis.positiveLabel}` },
+      ...(axis.negativeLabel ? [{ value: `mood:${axis.id}:asc`, label: `${t('most')} ${axis.negativeLabel}` }] : [])
+    ])
+  ];
 
   const conditions = [
     { label: t('has-link'), value: 'hasLink' },
@@ -32,6 +54,15 @@ export default function FilterPop() {
     { label: t('public'), value: 'isShare' },
     { label: t('has-todo'), value: 'hasTodo' },
   ];
+
+  const parseSortValue = (value: string) => {
+    const [field, direction, axisId] = value.split(':');
+    return {
+      sortField: field as 'date' | 'size' | 'mood',
+      orderBy: direction as 'asc' | 'desc',
+      moodAxisId: axisId ? Number(axisId) : null
+    };
+  };
 
   const handleApplyFilter = () => {
     blinkoStore.noteListFilterConfig = {
@@ -44,7 +75,8 @@ export default function FilterPop() {
       withLink: selectedCondition === 'hasLink',
       isShare: selectedCondition === 'isShare' ? true : false,
       hasTodo: selectedCondition === 'hasTodo',
-      isArchived: null
+      isArchived: null,
+      ...parseSortValue(sortValue)
     };
     blinkoStore.noteList.resetAndCall({});
     setIsOpen(false);
@@ -55,6 +87,7 @@ export default function FilterPop() {
     setTagStatus("all");
     setSelectedTag(null);
     setSelectedCondition(null);
+    setSortValue(DATE_DESC);
 
     blinkoStore.noteListFilterConfig = {
       ...blinkoStore.noteListFilterConfig,
@@ -66,7 +99,8 @@ export default function FilterPop() {
       withLink: false,
       isArchived: false,
       isShare: null,
-      hasTodo: false
+      hasTodo: false,
+      ...parseSortValue(DATE_DESC)
     };
     blinkoStore.noteList.resetAndCall({});
     setIsOpen(false);
@@ -201,6 +235,26 @@ export default function FilterPop() {
                 </Radio>
               ))}
             </RadioGroup>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-medium flex items-center gap-2">
+              <Icon icon="solar:sort-vertical-bold" width="20" height="20" />
+              {t('sort')}
+            </div>
+            <Select
+              selectedKeys={[sortValue]}
+              onChange={(e) => e.target.value && setSortValue(e.target.value)}
+              className="w-full"
+              classNames={{ trigger: "h-12" }}
+              disallowEmptySelection
+            >
+              {sortOptions.map(option => (
+                <SelectItem key={option.value} textValue={option.label}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </Select>
           </div>
 
           <div className="flex gap-2">

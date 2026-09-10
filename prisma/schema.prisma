@@ -36,6 +36,7 @@ model accounts {
   conversations conversation[]
   sharedNotes   noteInternalShare[]
   aiScheduledTasks aiScheduledTask[]
+  moodAxes      moodAxis[]
 }
 
 model attachments {
@@ -86,6 +87,16 @@ model notes {
   sortOrder         Int             @default(0)
   createdAt         DateTime        @default(now()) @db.Timestamptz(6)
   updatedAt         DateTime        @updatedAt @db.Timestamptz(6)
+  // CUSTOM-JOURNAL: char_length(content), a Postgres generated column (see the
+  // matching migration.sql) -- never written to by app code, only read/ordered.
+  contentLength     Int             @default(0)
+  // CUSTOM-JOURNAL: set once AI tagging + mood scoring has run for this note
+  // (see server/jobs/tagAuditJob.ts and AiService.postProcessNote); null means
+  // "never processed", used to find notes to backfill.
+  aiTaggedAt        DateTime?       @db.Timestamptz(6)
+  // CUSTOM-JOURNAL: per-note mood scores, keyed by moodAxis.id (as a string,
+  // since JSON object keys are always strings), e.g. {"1": 72, "2": 40}.
+  moodScores        Json?           @db.JsonB
   attachments       attachments[]
   tags              tagsToNote[]
   account           accounts?       @relation(fields: [accountId], references: [id])
@@ -125,6 +136,19 @@ model tag {
   tagsToNote tagsToNote[]
   sortOrder  Int          @default(0)
   account    accounts?    @relation(fields: [accountId], references: [id])
+}
+
+// CUSTOM-JOURNAL: a bipolar (positiveLabel + negativeLabel) or unipolar
+// (positiveLabel only, negativeLabel null) 0-100 mood dimension AI-scores every
+// note against. Per-note scores live in notes.moodScores, keyed by this id.
+model moodAxis {
+  id            Int       @id @default(autoincrement())
+  positiveLabel String   @db.VarChar
+  negativeLabel String?  @db.VarChar
+  sortOrder     Int       @default(0)
+  accountId     Int?
+  createdAt     DateTime  @default(now()) @db.Timestamptz(6)
+  account       accounts? @relation(fields: [accountId], references: [id])
 }
 
 model tagsToNote {

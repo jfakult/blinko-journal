@@ -22,6 +22,30 @@ export const tagRouter = router({
       return tags;
     }),
 
+  // CUSTOM-JOURNAL: tags are otherwise only ever created implicitly via
+  // #hashtag syntax in note content (see server/lib/helper.ts's
+  // syncNoteTagsFromContent) -- this lets the user create a tag directly,
+  // with zero notes attached yet, from the sidebar tag tree.
+  create: authProcedure
+    .meta({ openapi: { method: 'POST', path: '/v1/tags/create', summary: 'Create a new tag', protect: true, tags: ['Tag'] } })
+    .input(z.object({
+      name: z.string().min(1),
+      icon: z.string().default('').optional(),
+      parent: z.number().default(0).optional(),
+    }))
+    .output(tagSchema)
+    .mutation(async function ({ input, ctx }) {
+      const { name, icon, parent } = input
+      const accountId = Number(ctx.id)
+      const existing = await prisma.tag.findFirst({ where: { name, parent: parent ?? 0, accountId } })
+      if (existing) {
+        throw new Error('A tag with this name already exists at this level')
+      }
+      return await prisma.tag.create({
+        data: { name, icon: icon ?? '', parent: parent ?? 0, accountId }
+      })
+    }),
+
   fullTagNameById: authProcedure
     .input(z.object({
       id: z.number()

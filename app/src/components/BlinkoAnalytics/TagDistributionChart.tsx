@@ -1,24 +1,31 @@
-import { Card, CardBody } from "@heroui/react"
+import { Card, CardBody, Button } from "@heroui/react"
 import { observer } from "mobx-react-lite"
 import { useTranslation } from "react-i18next"
 import { useTheme } from "next-themes"
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import * as echarts from 'echarts'
 import { useMediaQuery } from "usehooks-ts"
+import { useNavigate } from "react-router-dom"
+import { Icon } from '@/components/Common/Iconify/icons'
 
 interface TagDistributionChartProps {
   tagStats: {
     tagName: string
     count: number
+    // CUSTOM-JOURNAL: null for the synthetic "Others" bucket -- not a real
+    // tag, so its slice isn't clickable-to-filter.
+    tagId?: number | null
   }[]
 }
 
 export const TagDistributionChart = observer(({ tagStats }: TagDistributionChartProps) => {
   const { t } = useTranslation()
   const { theme } = useTheme()
+  const navigate = useNavigate()
   const chartRef = useRef<HTMLDivElement>(null)
   let chart: echarts.ECharts | null = null
   const isMobile = useMediaQuery('(max-width: 768px)')
+  const [selected, setSelected] = useState<{ tagName: string; count: number; tagId: number } | null>(null)
 
   useEffect(() => {
     if (!chartRef.current) return
@@ -101,6 +108,14 @@ export const TagDistributionChart = observer(({ tagStats }: TagDistributionChart
 
     chart.setOption(option)
 
+    chart.off('click')
+    chart.on('click', (params: any) => {
+      const stat = tagStats[params.dataIndex]
+      if (stat?.tagId != null) {
+        setSelected({ tagName: stat.tagName, count: stat.count, tagId: stat.tagId })
+      }
+    })
+
     const handleResize = () => {
       if (chart) {
         chart.resize()
@@ -143,7 +158,28 @@ export const TagDistributionChart = observer(({ tagStats }: TagDistributionChart
       <CardBody>
         <p className="text-tiny uppercase font-bold mb-4">{t('tag-distribution')}</p>
         <div ref={chartRef} className="w-full h-[500px] md:h-[400px]" />
+        {selected && (
+          <div className="flex items-center justify-between gap-2 mt-2 p-3 rounded-xl bg-default-100">
+            <div className="flex items-center gap-2 min-w-0">
+              <Icon icon="solar:tags-bold" width="18" height="18" className="text-primary shrink-0" />
+              <span className="font-bold truncate">#{selected.tagName}</span>
+              <span className="text-default-400 text-tiny whitespace-nowrap">{selected.count} {t('entries')}</span>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                size="sm"
+                color="primary"
+                onPress={() => navigate(`/?path=all&tagId=${selected.tagId}`)}
+              >
+                {t('view-entries')}
+              </Button>
+              <Button size="sm" isIconOnly variant="light" onPress={() => setSelected(null)}>
+                <Icon icon="mdi:close" width="16" height="16" />
+              </Button>
+            </div>
+          </div>
+        )}
       </CardBody>
     </Card>
   )
-}) 
+})

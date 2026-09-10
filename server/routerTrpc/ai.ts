@@ -6,6 +6,8 @@ import { TRPCError } from '@trpc/server';
 import { CoreMessage } from '@mastra/core';
 import { AiModelFactory } from '@server/aiServer/aiModelFactory';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
+import { TagAuditJob } from '../jobs/tagAuditJob';
+import { moodAxisSchema } from '@shared/lib/prismaZodType';
 import { getAllPathTags } from '@server/lib/helper';
 import { ModelCapabilities } from '@server/aiServer/types';
 import { aiProviders, aiModels } from '@shared/lib/prismaZodType';
@@ -243,6 +245,92 @@ export const aiRouter = router({
         results: [],
         lastUpdate: new Date().toISOString()
       };
+    }),
+
+  tagAuditStart: authProcedure
+    .input(z.object({
+      force: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      await TagAuditJob.ForceRebuild(input.force ?? true);
+      return { success: true };
+    }),
+
+  tagAuditResume: authProcedure
+    .mutation(async () => {
+      await TagAuditJob.ResumeRebuild();
+      return { success: true };
+    }),
+
+  tagAuditRetryFailed: authProcedure
+    .mutation(async () => {
+      await TagAuditJob.RetryFailedNotes();
+      return { success: true };
+    }),
+
+  tagAuditStop: authProcedure
+    .mutation(async () => {
+      await TagAuditJob.StopRebuild();
+      return { success: true };
+    }),
+
+  tagAuditPendingCount: authProcedure
+    .output(z.number())
+    .query(async () => {
+      return await prisma.notes.count({ where: { aiTaggedAt: null, isRecycle: false } });
+    }),
+
+  tagAuditProgress: authProcedure
+    .query(async () => {
+      const progress = await TagAuditJob.GetProgress();
+      return progress || {
+        current: 0,
+        total: 0,
+        percentage: 0,
+        isRunning: false,
+        results: [],
+        lastUpdate: new Date().toISOString()
+      };
+    }),
+
+  // CUSTOM-JOURNAL: mood axis management (AI Settings) -- see prisma.moodAxis
+  moodAxisList: authProcedure
+    .output(z.array(moodAxisSchema))
+    .query(async () => {
+      return await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
+    }),
+
+  moodAxisCreate: authProcedure
+    .input(z.object({
+      positiveLabel: z.string().min(1),
+      negativeLabel: z.string().nullable().optional(),
+    }))
+    .output(moodAxisSchema)
+    .mutation(async ({ input, ctx }) => {
+      return await prisma.moodAxis.create({
+        data: { positiveLabel: input.positiveLabel, negativeLabel: input.negativeLabel ?? null, accountId: Number(ctx.id) }
+      });
+    }),
+
+  moodAxisUpdate: authProcedure
+    .input(z.object({
+      id: z.number(),
+      positiveLabel: z.string().min(1).optional(),
+      negativeLabel: z.string().nullable().optional(),
+      sortOrder: z.number().optional(),
+    }))
+    .output(moodAxisSchema)
+    .mutation(async ({ input }) => {
+      const { id, ...data } = input;
+      return await prisma.moodAxis.update({ where: { id }, data });
+    }),
+
+  moodAxisDelete: authProcedure
+    .input(z.object({ id: z.number() }))
+    .output(z.boolean())
+    .mutation(async ({ input }) => {
+      await prisma.moodAxis.delete({ where: { id: input.id } });
+      return true;
     }),
 
   testConnect: authProcedure

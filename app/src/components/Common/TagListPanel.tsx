@@ -9,6 +9,7 @@ import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem, Input, Button } 
 import EmojiPicker, { EmojiStyle, Theme } from 'emoji-picker-react';
 import { useTheme } from "next-themes";
 import { ShowUpdateTagDialog } from "./UpdateTagPop";
+import { ShowCreateTagDialog } from "./CreateTagPop";
 import { api } from "@/lib/trpc";
 import { PromiseCall } from "@/store/standard/PromiseState";
 import { BaseStore } from "@/store/baseStore";
@@ -91,7 +92,16 @@ export const TagListPanel = observer(() => {
   useEffect(() => { }, [blinko.noteListFilterConfig.tagId])
   return (
     <>
-      <div className="ml-2 my-2 text-xs font-bold text-primary">{t('total-tags')}</div>
+      <div className="ml-2 my-2 flex items-center justify-between">
+        <span className="text-xs font-bold text-primary">{t('total-tags')}</span>
+        <div
+          className="flex items-center gap-1 mr-2 text-xs text-default-500 hover:text-primary cursor-pointer !transition-all"
+          onClick={() => ShowCreateTagDialog()}
+        >
+          <Icon icon="mingcute:add-line" width="14" height="14" />
+          {t('new-tag')}
+        </div>
+      </div>
       <TreeView
         className="mb-4"
         data={flattenTree({

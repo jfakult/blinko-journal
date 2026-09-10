@@ -1,5 +1,18 @@
 # Workstream 8 — Analytics View
 
+> **Update — see `docs/workstreams/10-tags-and-mood.md`.** Two things below
+> are now stale: (1) `TagDistributionChart.tsx` is now clickable — a slice
+> click shows a count + a "View entries" button that navigates to the
+> filtered note list, via a new `tagId` field on `tagStats`. (2) The
+> "Moods — covered *transitively*" section below no longer reflects current
+> state: a first-class, structured, AI-scored mood system now exists
+> (`moodAxis` model + `notes.moodScores`, valence + 8 basic emotions,
+> 0-100 each) alongside the tag-based mood signal this section describes —
+> it isn't purely tag-derived anymore. A dedicated mood chart on this page
+> is still genuinely not built (see workstream 10's "Not done" list) — the
+> data now exists to build one, it just hasn't been added to `analytics.ts`/
+> this page yet.
+
 **Branch:** `feature/analytics-view`. **Priority:** lowest in the brief — sequenced to finish last, done thoroughly anyway per instructions.
 
 ## Correction to the brief

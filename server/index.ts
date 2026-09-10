@@ -13,6 +13,7 @@ import { DBJob } from './jobs/dbjob';
 import { RebuildEmbeddingJob } from './jobs/rebuildEmbeddingJob';
 import { RecommandJob } from './jobs/recommandJob';
 import { AIScheduledTaskJob } from './jobs/aiScheduledTaskJob';
+import { TagAuditJob } from './jobs/tagAuditJob';
 
 // tRPC related imports
 import { createContext } from './context';
@@ -80,6 +81,7 @@ async function initializeJobs() {
     await RebuildEmbeddingJob.initialize();
     await RecommandJob.initialize();
     await AIScheduledTaskJob.initialize();
+    await TagAuditJob.initialize();
     
     console.log('All scheduled jobs initialized successfully');
   } catch (error) {

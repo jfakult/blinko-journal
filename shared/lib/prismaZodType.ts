@@ -80,6 +80,9 @@ export const notesSchema = z.object({
   metadata: z.any(),
   sortOrder: z.number().nullable().optional(),
   accountId: z.union([z.number().int(), z.null()]),
+  contentLength: z.number().int().nullable().optional(),
+  aiTaggedAt: z.date().nullable().optional(),
+  moodScores: z.any().nullable().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 })
@@ -101,6 +104,20 @@ export const tagSchema = z.object({
 })
 
 export type tag = z.infer<typeof tagSchema>
+
+/////////////////////////////////////////
+// MOOD AXIS SCHEMA
+/////////////////////////////////////////
+
+export const moodAxisSchema = z.object({
+  id: z.number().int(),
+  positiveLabel: z.string(),
+  negativeLabel: z.string().nullable().optional(),
+  sortOrder: z.number().int(),
+  createdAt: z.coerce.date(),
+})
+
+export type moodAxis = z.infer<typeof moodAxisSchema>
 
 /////////////////////////////////////////
 // TAGS TO NOTE SCHEMA

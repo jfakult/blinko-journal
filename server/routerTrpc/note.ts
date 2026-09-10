@@ -2,25 +2,17 @@
 import { z } from 'zod';
 import { prisma } from '../prisma';
 import { Prisma } from '@prisma/client';
-import { helper, TagTreeNode } from '@shared/lib/helper';
 import { _ } from '@shared/lib/lodash';
 import { NoteType } from '../../shared/lib/types';
 import { attachmentsSchema, historySchema, notesSchema, tagSchema, tagsToNoteSchema, commentsSchema } from '@shared/lib/prismaZodType';
 import { getGlobalConfig } from './config';
 import { FileService } from '../lib/files';
 import { AiService } from '@server/aiServer';
-import { SendWebhook } from '@server/lib/helper';
+import { SendWebhook, syncNoteTagsFromContent } from '@server/lib/helper';
 import { Context } from '../context';
 import { cache } from '@shared/lib/cache';
 import { AiModelFactory } from '@server/aiServer/aiModelFactory';
 import { authProcedure, demoAuthMiddleware, publicProcedure, router } from '@server/middleware';
-
-const extractHashtags = (input: string): string[] => {
-  const withoutCodeBlocks = input.replace(/```[\s\S]*?```/g, '');
-  const hashtagRegex = /(?<!:\/\/)(?<=\s|^)#[^\s#]+(?=\s|$)/g;
-  const matches = withoutCodeBlocks.match(hashtagRegex);
-  return matches ? matches : [];
-};
 
 export const noteRouter = router({
   list: authProcedure
@@ -43,6 +35,12 @@ export const noteRouter = router({
         startDate: z.union([z.date(), z.null(), z.string()]).default(null).optional(),
         endDate: z.union([z.date(), z.null(), z.string()]).default(null).optional(),
         hasTodo: z.boolean().default(false).optional(),
+        // CUSTOM-JOURNAL: 'date' keeps the existing createdAt/updatedAt behavior
+        // (config.isOrderByCreateTime picks which, below); 'size' orders by the
+        // generated contentLength column; 'mood' orders by a single moodAxis's
+        // score, given via moodAxisId.
+        sortField: z.enum(['date', 'size', 'mood']).default('date').optional(),
+        moodAxisId: z.number().nullable().default(null).optional(),
       }),
     )
     .output(
@@ -104,7 +102,7 @@ export const noteRouter = router({
       ),
     )
     .mutation(async function ({ input, ctx }) {
-      const { tagId, type, isArchived, isRecycle, searchText, page, size, orderBy, withFile, withoutTag, withLink, isUseAiQuery, startDate, endDate, isShare, hasTodo } = input;
+      const { tagId, type, isArchived, isRecycle, searchText, page, size, orderBy, withFile, withoutTag, withLink, isUseAiQuery, startDate, endDate, isShare, hasTodo, sortField, moodAxisId } = input;
       if (isUseAiQuery && searchText?.trim() != '') {
         const cleanedQuery = searchText?.replace(/@/g, '').trim();
         if (cleanedQuery && cleanedQuery.length > 0) {
@@ -191,11 +189,21 @@ export const noteRouter = router({
         ];
       }
       const config = await getGlobalConfig({ ctx });
-      let timeOrderBy = config?.isOrderByCreateTime ? { createdAt: orderBy } : { updatedAt: orderBy };
+      let sortOrderBy: any = config?.isOrderByCreateTime ? { createdAt: orderBy } : { updatedAt: orderBy };
+      if (sortField === 'size') {
+        sortOrderBy = { contentLength: orderBy };
+      } else if (sortField === 'mood' && moodAxisId != null) {
+        // CUSTOM-JOURNAL: Prisma's JSON-path orderBy for PostgreSQL (GA, no
+        // preview flag needed as of Prisma 5.x) -- verify against a live DB,
+        // since this repo has none in the environment this was written in.
+        // If it doesn't sort correctly, fall back to a $queryRaw-based ID
+        // ordering for just this branch (see docs/plan notes).
+        sortOrderBy = { moodScores: { path: [String(moodAxisId)], sort: orderBy } };
+      }
 
       const notes = await prisma.notes.findMany({
         where,
-        orderBy: [{ isTop: 'desc' }, { sortOrder: 'asc' }, timeOrderBy],
+        orderBy: [{ isTop: 'desc' }, { sortOrder: 'asc' }, sortOrderBy],
         skip: (page - 1) * size,
         take: size,
         include: {
@@ -901,8 +909,6 @@ export const noteRouter = router({
         }
       }
 
-      const tagTree = helper.buildHashTagTreeFromHashString(extractHashtags(content?.replace(/\\/g, '') + ' '));
-      let newTags: Prisma.tagCreateManyInput[] = [];
       const config = await getGlobalConfig({ ctx });
 
       const markdownImages =
@@ -914,23 +920,6 @@ export const noteRouter = router({
         const images = await prisma.attachments.findMany({ where: { path: { in: markdownImages } } });
         attachments = [...attachments, ...images.map((i) => ({ path: i.path, name: i.name, size: Number(i.size), type: i.type }))];
       }
-
-      const handleAddTags = async (tagTree: TagTreeNode[], parentTag: Prisma.tagCreateManyInput | undefined, noteId?: number) => {
-        for (const i of tagTree) {
-          let hasTag = await prisma.tag.findFirst({ where: { name: i.name, parent: parentTag?.id ?? 0, accountId: Number(ctx.id) } });
-          if (!hasTag) {
-            hasTag = await prisma.tag.create({ data: { name: i.name, parent: parentTag?.id ?? 0, accountId: Number(ctx.id) } });
-          }
-          if (noteId) {
-            const hasRelation = await prisma.tagsToNote.findFirst({ where: { tag: hasTag, noteId } });
-            !hasRelation && (await prisma.tagsToNote.create({ data: { tagId: hasTag.id, noteId } }));
-          }
-          if (i?.children) {
-            await handleAddTags(i.children, hasTag, noteId);
-          }
-          newTags.push(hasTag);
-        }
-      };
 
       const update: Prisma.notesUpdateInput = {
         ...(type !== -1 && { type }),
@@ -1006,13 +995,7 @@ export const noteRouter = router({
           SendWebhook({ ...note, attachments }, isRecycle ? 'delete' : 'update', ctx);
           return note;
         }
-        const oldTagsInThisNote = await prisma.tagsToNote.findMany({ where: { noteId: note.id }, include: { tag: true } });
-        await handleAddTags(tagTree, undefined, note.id);
-        const oldTags = oldTagsInThisNote.map((i) => i.tag).filter((i) => !!i);
-        const oldTagsString = oldTags.map((i) => `${i?.name}<key>${i?.parent}`);
-        const newTagsString = newTags.map((i) => `${i?.name}<key>${i?.parent}`);
-        const needTobeAddedRelationTags = _.difference(newTagsString, oldTagsString);
-        const needToBeDeletedRelationTags = _.difference(oldTagsString, newTagsString);
+        await syncNoteTagsFromContent(note.id, Number(ctx.id), content);
 
         // handle references
         const oldReferences = await prisma.noteReference.findMany({ where: { fromNoteId: note.id } });
@@ -1039,51 +1022,6 @@ export const noteRouter = router({
           }
         }
 
-        if (needToBeDeletedRelationTags.length != 0) {
-          await prisma.tagsToNote.deleteMany({
-            where: {
-              note: {
-                id: note.id,
-              },
-              tag: {
-                id: {
-                  in: needToBeDeletedRelationTags
-                    .map((i) => {
-                      const [name, parent] = i.split('<key>');
-                      return oldTags.find((t) => t?.name == name && t?.parent == Number(parent))!.id;
-                    })
-                    .filter((i) => !!i),
-                },
-              },
-            },
-          });
-        }
-
-        if (needTobeAddedRelationTags.length != 0) {
-          for (const relationTag of needTobeAddedRelationTags) {
-            const [name, parent] = relationTag.split('<key>');
-            const tagId = newTags.find((t) => t.name == name && t.parent == Number(parent))?.id;
-            if (tagId) {
-              try {
-                await prisma.tagsToNote.create({
-                  data: { noteId: note.id, tagId },
-                });
-              } catch (error) {
-                if (error.code !== 'P2002') {
-                  throw error;
-                }
-              }
-            }
-          }
-        }
-
-        // delete unused tags
-        const allTagsIds = oldTags?.map((i) => i?.id);
-        const usingTags = (await prisma.tagsToNote.findMany({ where: { tagId: { in: allTagsIds } } })).map((i) => i.tagId).filter((i) => !!i);
-        const needTobeDeledTags = _.difference(allTagsIds, usingTags);
-        if (needTobeDeledTags) {
-          await prisma.tag.deleteMany({ where: { id: { in: needTobeDeledTags }, accountId: Number(ctx.id) } });
-        }
 
         // insert not repeat attachments
         try {
@@ -1129,7 +1067,7 @@ export const noteRouter = router({
               ...(input.metadata && { metadata: input.metadata }),
             },
           });
-          await handleAddTags(tagTree, undefined, note.id);
+          await syncNoteTagsFromContent(note.id, Number(ctx.id), content ?? '');
           const attachmentsIds = await prisma.attachments.findMany({ where: { path: { in: attachments.map((i) => i.path) } } });
           await prisma.attachments.updateMany({ where: { id: { in: attachmentsIds.map((i) => i.id) } }, data: { noteId: note.id } });
           //add references

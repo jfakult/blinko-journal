@@ -43,7 +43,10 @@ export const analyticsRouter = router({
       activeDays: z.number(),
       tagStats: z.array(z.object({
         tagName: z.string(),
-        count: z.number()
+        count: z.number(),
+        // CUSTOM-JOURNAL: null for the synthetic "Others" bucket, which isn't
+        // a real tag and shouldn't be clickable-to-filter.
+        tagId: z.number().nullable()
       })).optional(),
       // CUSTOM-JOURNAL: location distribution for requirement 9 ("locations, moods, trends").
       // Sourced from notes.metadata.location.name (see docs/workstreams/08-analytics-view.md
@@ -97,6 +100,7 @@ export const analyticsRouter = router({
           }
         },
         select: {
+          id: true,
           name: true,
           _count: {
             select: {
@@ -120,14 +124,16 @@ export const analyticsRouter = router({
       const finalTagStats = [
         ...topTags.map(tag => ({
           tagName: tag.name,
-          count: tag._count.tagsToNote
+          count: tag._count.tagsToNote,
+          tagId: tag.id
         }))
       ]
 
       if (otherTagsCount > 0) {
         finalTagStats.push({
           tagName: 'Others',
-          count: otherTagsCount
+          count: otherTagsCount,
+          tagId: null
         })
       }
 

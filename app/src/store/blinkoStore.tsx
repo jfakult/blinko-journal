@@ -116,7 +116,12 @@ export class BlinkoStore implements Store {
     isUseAiQuery: false,
     startDate: null as Date | null,
     endDate: null as Date | null,
-    hasTodo: false
+    hasTodo: false,
+    // CUSTOM-JOURNAL: entry sort, surfaced in FilterPop's "Sort" section.
+    // 'date' + orderBy keeps the pre-existing newest/oldest behavior.
+    sortField: 'date' as 'date' | 'size' | 'mood',
+    moodAxisId: null as number | null,
+    orderBy: 'desc' as 'asc' | 'desc'
   }
   noteTypeDefault: NoteType = NoteType.BLINKO
   currentCommonFilter: filterType | null = null
@@ -631,6 +636,9 @@ export class BlinkoStore implements Store {
       this.noteListFilterConfig.endDate = null
       this.noteListFilterConfig.isShare = null
       this.noteListFilterConfig.hasTodo = false
+      this.noteListFilterConfig.sortField = 'date'
+      this.noteListFilterConfig.moodAxisId = null
+      this.noteListFilterConfig.orderBy = 'desc'
 
       // Fix: Clear multi-select state when switching paths to avoid stale selections
       this.curMultiSelectIds = [];

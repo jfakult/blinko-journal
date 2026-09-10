@@ -3,10 +3,13 @@ import { authenticator } from 'otplib';
 import crypto from 'crypto';
 import { Feed } from "feed";
 import jwt from 'jsonwebtoken';
+import { Prisma } from '@prisma/client';
 import { prisma } from "@server/prisma";
 import { User } from "@server/context";
 import { Request as ExpressRequest } from 'express';
 import { getGlobalConfig } from "@server/routerTrpc/config";
+import { helper as sharedHelper, TagTreeNode } from '@shared/lib/helper';
+import { _ } from '@shared/lib/lodash';
 
 type SendWebhookOptions = {
   activityType?: string;
@@ -300,6 +303,91 @@ export const getAllPathTags = async () => {
     });
     return [...new Set(pathTags)];
   }
+};
+
+export const extractHashtags = (input: string): string[] => {
+  const withoutCodeBlocks = input.replace(/```[\s\S]*?```/g, '');
+  const hashtagRegex = /(?<!:\/\/)(?<=\s|^)#[^\s#]+(?=\s|$)/g;
+  const matches = withoutCodeBlocks.match(hashtagRegex);
+  return matches ? matches : [];
+};
+
+// CUSTOM-JOURNAL: parses #hashtag syntax out of a note's content and
+// reconciles tag/tagsToNote rows to match -- the same logic note.ts's
+// `upsert` used to run inline for both note creation and note updates.
+// Extracted so it's also callable from background jobs (e.g. tagAuditJob.ts)
+// that have no live tRPC Context to build a `userCaller` from.
+export const syncNoteTagsFromContent = async (noteId: number, accountId: number, content: string) => {
+  const tagTree = sharedHelper.buildHashTagTreeFromHashString(extractHashtags(content?.replace(/\\/g, '') + ' '));
+  const newTags: Prisma.tagCreateManyInput[] = [];
+
+  const handleAddTags = async (nodes: TagTreeNode[], parentTag: Prisma.tagCreateManyInput | undefined) => {
+    for (const i of nodes) {
+      let hasTag = await prisma.tag.findFirst({ where: { name: i.name, parent: parentTag?.id ?? 0, accountId } });
+      if (!hasTag) {
+        hasTag = await prisma.tag.create({ data: { name: i.name, parent: parentTag?.id ?? 0, accountId } });
+      }
+      const hasRelation = await prisma.tagsToNote.findFirst({ where: { tag: hasTag, noteId } });
+      !hasRelation && (await prisma.tagsToNote.create({ data: { tagId: hasTag.id, noteId } }));
+      if (i?.children) {
+        await handleAddTags(i.children, hasTag);
+      }
+      newTags.push(hasTag);
+    }
+  };
+
+  const oldTagsInThisNote = await prisma.tagsToNote.findMany({ where: { noteId }, include: { tag: true } });
+  await handleAddTags(tagTree, undefined);
+
+  const oldTags = oldTagsInThisNote.map((i) => i.tag).filter((i) => !!i);
+  const oldTagsString = oldTags.map((i) => `${i?.name}<key>${i?.parent}`);
+  const newTagsString = newTags.map((i) => `${i?.name}<key>${i?.parent}`);
+  const needTobeAddedRelationTags = _.difference(newTagsString, oldTagsString);
+  const needToBeDeletedRelationTags = _.difference(oldTagsString, newTagsString);
+
+  if (needToBeDeletedRelationTags.length != 0) {
+    await prisma.tagsToNote.deleteMany({
+      where: {
+        note: { id: noteId },
+        tag: {
+          id: {
+            in: needToBeDeletedRelationTags
+              .map((i) => {
+                const [name, parent] = i.split('<key>');
+                return oldTags.find((t) => t?.name == name && t?.parent == Number(parent))!.id;
+              })
+              .filter((i) => !!i),
+          },
+        },
+      },
+    });
+  }
+
+  if (needTobeAddedRelationTags.length != 0) {
+    for (const relationTag of needTobeAddedRelationTags) {
+      const [name, parent] = relationTag.split('<key>');
+      const tagId = newTags.find((t) => t.name == name && t.parent == Number(parent))?.id;
+      if (tagId) {
+        try {
+          await prisma.tagsToNote.create({ data: { noteId, tagId } });
+        } catch (error: any) {
+          if (error.code !== 'P2002') {
+            throw error;
+          }
+        }
+      }
+    }
+  }
+
+  // delete unused tags
+  const allTagsIds = oldTags?.map((i) => i?.id);
+  const usingTags = (await prisma.tagsToNote.findMany({ where: { tagId: { in: allTagsIds } } })).map((i) => i.tagId).filter((i) => !!i);
+  const needTobeDeledTags = _.difference(allTagsIds, usingTags);
+  if (needTobeDeledTags.length != 0) {
+    await prisma.tag.deleteMany({ where: { id: { in: needTobeDeledTags }, accountId } });
+  }
+
+  return newTags;
 };
 
 

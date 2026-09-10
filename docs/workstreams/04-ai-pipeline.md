@@ -1,5 +1,16 @@
 # Workstream 4 — AI Tagging, RAG Search & Location Logging
 
+> **Update — see `docs/workstreams/10-tags-and-mood.md`.** The tagging
+> prompt quoted below (§"Journal-appropriate auto-tagging prompt") is now
+> stale — it's grown a fifth category (topic/theme) since this doc was
+> written; the current text lives in `prisma/seed.ts`'s `journalTagsPrompt`.
+> Mood is also no longer tag-only: a structured, AI-scored `moodAxis`/
+> `notes.moodScores` system now runs alongside the `#mood/*` tags described
+> here (both exist; they're complementary, not a replacement). The tagging
+> audit/backfill job and `AiService.postProcessNote`'s exact tag-generation
+> code path referenced below were also refactored — see workstream 10 for
+> current file:line references.
+
 Scope per the corrected brief (see `docs/PROJECT_BRIEF.md` and
 `docs/workstreams/00-multi-user-model.md`): single account, single Ollama
 instance. No multi-account provisioning here — just one account's AI

@@ -21,6 +21,8 @@ Work is split into one branch per workstream, all off `main`, built to merge bac
 
 Core-file changes that couldn't be done via the plugin system are marked `// CUSTOM-JOURNAL:` inline, so they're easy to spot during upstream merges.
 
+Later feature work not part of the original brief above is documented the same way as it lands, e.g. [docs/workstreams/10-tags-and-mood.md](docs/workstreams/10-tags-and-mood.md) (tag chips, filter/sort, mood scoring, tagging audit) — done directly on `main`, no dedicated branch.
+
 ## Syncing from upstream
 
 ```bash

@@ -348,6 +348,43 @@ export class AiService {
     }
   }
 
+  // CUSTOM-JOURNAL: shared by postProcessNote's live 'tags'/'both' path and
+  // server/jobs/tagAuditJob.ts's backfill pass, so both run identical logic.
+  static async suggestTags(content: string): Promise<string[]> {
+    const config = await AiModelFactory.globalConfig();
+    const aiTagsPrompt = config.aiTagsPrompt;
+    const tagAgent = aiTagsPrompt ? await AiModelFactory.TagAgent(aiTagsPrompt) : await AiModelFactory.TagAgent();
+    const tags = await getAllPathTags();
+    const result = await tagAgent.generate(
+      `Existing tags list:  [${tags.join(', ')}]\n Note content:\n${content}`
+    );
+    return result.text.split(',').map((tag: string) => tag.trim()).filter(Boolean).slice(0, 5);
+  }
+
+  // CUSTOM-JOURNAL: scores every active moodAxis (0-100) for a note's content,
+  // returning a map keyed by moodAxis.id (string) ready to store directly in
+  // notes.moodScores. Shared the same way suggestTags is.
+  static async scoreMood(content: string): Promise<Record<string, number>> {
+    const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
+    if (axes.length === 0) return {};
+    const axesDescription = axes
+      .map((axis) => (axis.negativeLabel ? `${axis.positiveLabel}/${axis.negativeLabel}` : axis.positiveLabel))
+      .join('\n');
+    const moodAgent = await AiModelFactory.MoodAgent(axesDescription);
+    const result = await moodAgent.generate(`Entry content:\n${content}`);
+    const scores: Record<string, number> = {};
+    const pairs = result.text.split(',').map((pair: string) => pair.trim()).filter(Boolean);
+    for (const pair of pairs) {
+      const [label, scoreStr] = pair.split(':').map((s: string) => s.trim());
+      const axis = axes.find((a) => a.positiveLabel === label);
+      const score = Number(scoreStr);
+      if (axis && !Number.isNaN(score)) {
+        scores[String(axis.id)] = Math.max(0, Math.min(100, Math.round(score)));
+      }
+    }
+    return scores;
+  }
+
   static async postProcessNote({ noteId, ctx }: { noteId: number; ctx: Context }) {
     try {
       const runtimeContext = new RuntimeContext();
@@ -477,22 +514,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
 
       if (processingMode === 'tags' || processingMode === 'both') {
         try {
-          let suggestedTags: string[] = [];
-          // If no clear tag format, process with an agent specialized for tag extraction
-          const aiTagsPrompt = config.aiTagsPrompt
-          let tagAgent: any;
-          if (aiTagsPrompt != '') {
-            tagAgent = await AiModelFactory.TagAgent(aiTagsPrompt);
-          } else {
-            tagAgent = await AiModelFactory.TagAgent();
-          }
-          const tags = await getAllPathTags();
-          const result = await tagAgent.generate(
-            `Existing tags list:  [${tags.join(', ')}]\n Note content:\n${note.content}`
-          )
-          suggestedTags = result.text.split(',').map((tag) => tag.trim());
-          // Filter out empty tags and limit to 5 tags max
-          suggestedTags = suggestedTags.filter(Boolean).slice(0, 5);
+          const suggestedTags = await AiService.suggestTags(note.content);
           caller.notes.upsert({
             id: noteId,
             content: note.content + '\n' + suggestedTags.join(' '),
@@ -500,6 +522,17 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         } catch (error) {
           console.error('Error processing tags:', error);
         }
+
+        try {
+          const moodScores = await AiService.scoreMood(note.content);
+          if (Object.keys(moodScores).length > 0) {
+            await prisma.notes.update({ where: { id: noteId }, data: { moodScores } });
+          }
+        } catch (error) {
+          console.error('Error scoring mood:', error);
+        }
+
+        await prisma.notes.update({ where: { id: noteId }, data: { aiTaggedAt: new Date() } });
       }
 
       if (processingMode === 'smartEdit' || processingMode === 'both') {

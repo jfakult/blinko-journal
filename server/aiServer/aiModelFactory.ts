@@ -466,6 +466,23 @@ export class AiModelFactory {
     'BlinkoEmoji',
   );
 
+  static MoodAgent = AiModelFactory.#createAgentFactory(
+    'Blinko Mood Agent',
+    (axesDescription?: string) => {
+      return `You are an emotional-tone analysis expert for a personal voice journal. Given the entry content and the mood dimensions listed below, score how strongly each dimension is present, from 0 to 100.
+
+Mood dimensions:
+${axesDescription || ''}
+
+Rules:
+1. A bipolar dimension is given as "positiveLabel/negativeLabel" (e.g. "positive/negative"). Score 0 = fully negativeLabel, 100 = fully positiveLabel, 50 = neutral/mixed.
+2. A unipolar dimension is given as a single label (e.g. "joy"). Score 0 = that emotion is entirely absent from the entry, 100 = it is maximally present. Most entries will score low on most unipolar emotions -- only score high when the entry clearly expresses that specific emotion.
+3. Base every score only on what's actually expressed or implied in the entry content, never on assumptions beyond the text.
+4. Response format: return only "label:score" pairs separated by commas, one per dimension given, in the same order, using each dimension's positiveLabel as the label. No spaces, no explanation, no code blocks or Markdown. Example: positive:70,anger:5,anxiety:15,joy:60,sadness:5,surprise:20,fear:5,excitement:55,gratitude:65`;
+    },
+    'BlinkoMood',
+  );
+
   static RelatedNotesAgent = AiModelFactory.#createAgentFactory(
     'Blinko Related Notes Agent',
     `You are a keyword extraction expert. Your task is to extract the most representative keywords from the provided note content.
