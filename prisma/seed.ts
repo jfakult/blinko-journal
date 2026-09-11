@@ -238,6 +238,15 @@ async function seedDefaultAiConfig() {
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
   await setConfigIfMissing('aiTagsPrompt', journalTagsPrompt);
 
+  // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
+  // entry's date should read as "when I wrote this," not "when it was last
+  // touched" (which now includes AI tag/mood passes, even though those are
+  // deliberately updatedAt-preserving -- a genuine user edit still bumps it,
+  // and sorting/display by that is confusing for a chronological journal).
+  // Both are still user-editable in Settings -> Preferences.
+  await setConfigIfMissing('isOrderByCreateTime', true);
+  await setConfigIfMissing('timeFormat', 'dddd, MMM D, YYYY [at] h:mmA');
+
   console.log('✅ AI config seed/self-heal pass complete.');
 }
 

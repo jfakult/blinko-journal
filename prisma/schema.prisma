@@ -94,9 +94,18 @@ model notes {
   sortOrder         Int             @default(0)
   createdAt         DateTime        @default(now()) @db.Timestamptz(6)
   updatedAt         DateTime        @updatedAt @db.Timestamptz(6)
-  // CUSTOM-JOURNAL: char_length(content), a Postgres generated column (see the
-  // matching migration.sql) -- never written to by app code, only read/ordered.
-  contentLength     Int             @default(0)
+  // CUSTOM-JOURNAL: char_length(content), a Postgres GENERATED ALWAYS ...
+  // STORED column (see the matching migration.sql). Deliberately no
+  // `@default(...)` here and typed nullable -- Prisma's query engine writes
+  // an explicit value for any field with a literal `@default`, which
+  // Postgres flatly rejects for a generated column ("cannot insert a
+  // non-DEFAULT value"). With neither a default nor ever being set in a
+  // `data` object, Prisma omits the column entirely and lets Postgres
+  // compute it, exactly as required. Never written to by app code, only
+  // read/ordered -- the column itself is NOT NULL in practice (Postgres
+  // always computes a value), this is just a Prisma-side type widening for
+  // safety, not a real nullability.
+  contentLength     Int?
   // CUSTOM-JOURNAL: set once AI tagging + mood scoring has run for this note
   // (see server/jobs/tagAuditJob.ts and AiService.postProcessNote); null means
   // "never processed", used to find notes to backfill.

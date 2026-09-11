@@ -275,7 +275,13 @@ const Home = observer(() => {
 
           {store.isSyncingList && (
             <div className='w-full flex justify-center py-4'>
-              <Icon icon="line-md:loading-twotone-loop" width="24" height="24" className="text-default-400" />
+              {/* CUSTOM-JOURNAL: plain CSS spin, not an Iconify icon -- the
+                  line-md "loading" icons don't reliably self-animate here
+                  (same reason ModelDialogContent.tsx layers animate-spin on
+                  top of one), so this just reuses ScrollArea's own
+                  pull-to-refresh spinner markup directly, which is
+                  guaranteed to spin regardless of icon-set behavior. */}
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           )}
           {store.showLoadAll && <div className='select-none w-full text-center text-sm font-bold text-ignore my-4'>{t('all-notes-have-been-loaded', { items: currentListState.value?.length })}</div>}

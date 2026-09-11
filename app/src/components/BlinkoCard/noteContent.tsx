@@ -24,6 +24,10 @@ export const NoteContent = observer(({ blinkoItem, blinko, isExpanded, isShareMo
         }}
         isShareMode={isShareMode}
         largeSpacing={isShareMode || isExpanded}
+        // CUSTOM-JOURNAL: CardFooter's TagList already renders this note's
+        // tags as chips -- don't also render the trailing "#tag" line as a
+        // duplicate inline pill here. See MarkdownRender's stripTrailingTagLines.
+        hideTrailingTagLines
       />
       <ReferencesContent blinkoItem={blinkoItem} className={`${isExpanded ? 'my-4' : 'my-2'}`} />
       <div className={blinkoItem.attachments?.length != 0 ? 'my-2' : ''}>

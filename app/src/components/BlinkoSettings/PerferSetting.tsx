@@ -327,6 +327,7 @@ export const PerferSetting = observer(() => {
             { key: "MMM DD, YYYY HH:mm", label: "Mar 20, 2024 15:30" },
             { key: "YYYY-MM-DD, dddd", label: "2024-01-01, Monday" },
             { key: "dddd, MMM DD, YYYY", label: "Monday, Mar 20, 2024" },
+            { key: "dddd, MMM D, YYYY [at] h:mmA", label: "Monday, Mar 20, 2024 at 3:30PM" },
           ]}
           onChange={async (value) => {
             await PromiseCall(api.config.update.mutate({

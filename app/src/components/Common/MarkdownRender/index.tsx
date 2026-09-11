@@ -61,9 +61,31 @@ const Table = ({ children }: { children: React.ReactNode }) => {
   return <div className="table-container">{children}</div>;
 };
 
-export const MarkdownRender = observer(({ content = '', onChange, isShareMode, largeSpacing = false }: { content?: string, onChange?: (newContent: string) => void, isShareMode?: boolean, largeSpacing?: boolean }) => {
+// CUSTOM-JOURNAL: tags are always appended as trailing "#path #path2" lines
+// (AI tagging, the editor's Tags row, and manual attach/detach all work
+// this way -- see server/lib/helper.ts's syncNoteTagsFromContent). Wherever
+// a note's tags are also shown as chips (e.g. BlinkoCard's TagList),
+// rendering that same trailing line again via HighlightTags's pill styling
+// just doubles every tag up visually. Strips only whole trailing lines that
+// are ENTIRELY hashtags (nothing else on the line); a hashtag typed
+// deliberately mid-sentence is untouched and still renders inline. Display
+// only -- callers keep passing the original `content` for onChange/editing
+// (see the `li`/ListItem wiring below), so this can never cause a save to
+// drop the stripped text.
+function stripTrailingTagLines(text: string): string {
+  const lines = text.split('\n');
+  const tagOnlyLine = /^(?:\s*#[^\s#]+)+\s*$/;
+  let end = lines.length;
+  while (end > 0 && (lines[end - 1].trim() === '' || tagOnlyLine.test(lines[end - 1]))) {
+    end--;
+  }
+  return lines.slice(0, end).join('\n');
+}
+
+export const MarkdownRender = observer(({ content = '', onChange, isShareMode, largeSpacing = false, hideTrailingTagLines = false }: { content?: string, onChange?: (newContent: string) => void, isShareMode?: boolean, largeSpacing?: boolean, hideTrailingTagLines?: boolean }) => {
   const { theme } = useTheme()
   const contentRef = useRef(null);
+  const displayContent = hideTrailingTagLines ? stripTrailingTagLines(content) : content;
 
   return (
     <div className={`markdown-body ${largeSpacing ? 'markdown-large-spacing' : ''}`}>
@@ -203,7 +225,7 @@ export const MarkdownRender = observer(({ content = '', onChange, isShareMode, l
             table: TableWrapper
           }}
         >
-          {content}
+          {displayContent}
         </ReactMarkdown>
       </div>
     </div>

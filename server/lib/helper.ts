@@ -327,8 +327,17 @@ export const syncNoteTagsFromContent = async (noteId: number, accountId: number,
       if (!hasTag) {
         hasTag = await prisma.tag.create({ data: { name: i.name, parent: parentTag?.id ?? 0, accountId } });
       }
-      const hasRelation = await prisma.tagsToNote.findFirst({ where: { tag: hasTag, noteId } });
-      !hasRelation && (await prisma.tagsToNote.create({ data: { tagId: hasTag.id, noteId } }));
+      // CUSTOM-JOURNAL: upsert, not findFirst-then-create -- the previous
+      // check-then-act had a TOCTOU race (two overlapping syncNoteTagsFromContent
+      // calls for the same note, e.g. a manual tag attach landing alongside
+      // AI tagging, could both see "no relation yet" and both try to create
+      // it), crashing on the (noteId, tagId) composite primary key. upsert
+      // is atomic at the DB level, so a lost race just no-ops instead.
+      await prisma.tagsToNote.upsert({
+        where: { noteId_tagId: { noteId, tagId: hasTag.id } },
+        update: {},
+        create: { tagId: hasTag.id, noteId },
+      });
       if (i?.children) {
         await handleAddTags(i.children, hasTag);
       }

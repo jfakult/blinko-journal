@@ -135,8 +135,16 @@ export default function FilterPop() {
           <Icon className="cursor-pointer text-default-600" icon="tabler:filter-bolt" width="24" height="24" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent>
-        <div className="p-4 flex flex-col gap-4 min-w-[300px]">
+      {/* CUSTOM-JOURNAL: the Sort section + always-visible tag search (both
+          added after this popover was first built) pushed its content
+          taller than a phone viewport, and it had no height/width cap at
+          all -- it just rendered past the screen edge with no way to reach
+          the Apply/Reset buttons. maxHeight caps it to the viewport
+          (scrolling internally instead), and the content div's max-w/
+          overflow-y-auto keep it from doing the same horizontally on
+          narrow phones. */}
+      <PopoverContent className="max-h-[85vh]">
+        <div className="p-4 flex flex-col gap-4 w-[300px] max-w-[calc(100vw-2rem)] max-h-[85vh] overflow-y-auto">
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium flex items-center gap-2">
               <Icon icon="solar:sort-by-time-broken" width="24" height="24" />
