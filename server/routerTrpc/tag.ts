@@ -62,6 +62,7 @@ export const tagRouter = router({
       noteId: z.number(),
       tagPath: z.string().min(1),
     }))
+    .output(z.object({ success: z.boolean() }))
     .mutation(async function ({ input, ctx }) {
       const accountId = Number(ctx.id)
       const note = await prisma.notes.findUnique({ where: { id: input.noteId, accountId }, select: { content: true } })
@@ -83,6 +84,7 @@ export const tagRouter = router({
       noteId: z.number(),
       tagPath: z.string().min(1),
     }))
+    .output(z.object({ success: z.boolean() }))
     .mutation(async function ({ input, ctx }) {
       const accountId = Number(ctx.id)
       const note = await prisma.notes.findUnique({ where: { id: input.noteId, accountId }, select: { content: true } })
