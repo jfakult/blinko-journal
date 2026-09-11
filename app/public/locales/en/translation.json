@@ -877,5 +877,16 @@
   "emotion-label-placeholder": "Emotion label (e.g. joy)",
   "add-mood-axis": "Add",
   "delete-mood-axis": "Delete mood axis",
-  "delete-mood-axis-desc": "This removes the axis and its scores from every entry. This doesn't delete any entries."
+  "delete-mood-axis-desc": "This removes the axis and its scores from every entry. This doesn't delete any entries.",
+
+  "ai-task-log": "AI Task Log",
+  "my-tasks": "My tasks",
+  "all-accounts": "All accounts",
+  "no-ai-tasks-found": "No AI tasks yet.",
+  "load-more": "Load more",
+  "ai-task-type-postProcess": "Post-Processing",
+  "ai-task-type-transcription": "Transcription",
+  "ai-task-type-aiComment": "AI Comment",
+  "ai-task-type-tagAudit": "Tag Audit",
+  "ai-task-type-embeddingRebuild": "Embedding Rebuild"
 }

@@ -37,6 +37,7 @@ model accounts {
   sharedNotes   noteInternalShare[]
   aiScheduledTasks aiScheduledTask[]
   moodAxes      moodAxis[]
+  aiTaskLogs    aiTaskLog[]
 }
 
 model attachments {
@@ -155,6 +156,25 @@ model moodAxis {
   accountId     Int?
   createdAt     DateTime  @default(now()) @db.Timestamptz(6)
   account       accounts? @relation(fields: [accountId], references: [id])
+}
+
+// CUSTOM-JOURNAL: append-only audit trail of background AI operations
+// (tagging, mood scoring, transcription, AI comments, embedding rebuilds,
+// tag audits) surfaced in AI Settings as an expandable, paginated task log.
+// See server/lib/aiTaskLog.ts for the start/finish helpers every AI entry
+// point writes through.
+model aiTaskLog {
+  id         Int       @id @default(autoincrement())
+  accountId  Int?
+  taskType   String    @db.VarChar
+  status     String    @default("running") @db.VarChar // 'running' | 'success' | 'error'
+  noteId     Int?
+  message    String?   @db.VarChar(500)
+  startedAt  DateTime  @default(now()) @db.Timestamptz(6)
+  finishedAt DateTime? @db.Timestamptz(6)
+  account    accounts? @relation(fields: [accountId], references: [id])
+
+  @@index([accountId, startedAt])
 }
 
 model tagsToNote {

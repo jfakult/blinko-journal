@@ -17,6 +17,7 @@ import { AiToolsSection } from './AiToolsSection';
 import { EmbeddingSettingsSection } from './EmbeddingSettingsSection';
 import { TagAuditSection } from './TagAuditSection';
 import { MoodAxisSection } from './MoodAxisSection';
+import { AiTaskLogSection } from './AiTaskLogSection';
 import ModelDialogContent from './ModelDialogContent';
 import { McpServersSection } from './McpServersSection';
 import { AiSettingStore } from '@/store/aiSettingStore';
@@ -95,6 +96,8 @@ export default observer(function AiSetting() {
       <TagAuditSection />
 
       <MoodAxisSection />
+
+      <AiTaskLogSection />
 
       <AiToolsSection />
 

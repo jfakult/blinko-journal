@@ -7,7 +7,7 @@ import { CoreMessage } from '@mastra/core';
 import { AiModelFactory } from '@server/aiServer/aiModelFactory';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
 import { TagAuditJob } from '../jobs/tagAuditJob';
-import { moodAxisSchema } from '@shared/lib/prismaZodType';
+import { moodAxisSchema, aiTaskLogSchema } from '@shared/lib/prismaZodType';
 import { getAllPathTags } from '@server/lib/helper';
 import { ModelCapabilities } from '@server/aiServer/types';
 import { aiProviders, aiModels } from '@shared/lib/prismaZodType';
@@ -331,6 +331,31 @@ export const aiRouter = router({
     .mutation(async ({ input }) => {
       await prisma.moodAxis.delete({ where: { id: input.id } });
       return true;
+    }),
+
+  // CUSTOM-JOURNAL: paginated log of background AI operations (see
+  // server/lib/aiTaskLog.ts for what writes into it). A superadmin can see
+  // every account's tasks (scope: 'all') or just their own; anyone else is
+  // always scoped to their own account regardless of what `scope` they pass
+  // -- 'all' is silently downgraded to 'mine' rather than rejected, since a
+  // stray 'all' in the request shouldn't be an error, just a no-op privilege
+  // request.
+  aiTaskLogList: authProcedure
+    .input(z.object({
+      page: z.number().default(1),
+      size: z.number().default(20),
+      scope: z.enum(['mine', 'all']).default('mine'),
+    }))
+    .output(z.array(aiTaskLogSchema))
+    .query(async ({ input, ctx }) => {
+      const isSuperAdmin = ctx.role === 'superadmin';
+      const where = isSuperAdmin && input.scope === 'all' ? {} : { accountId: Number(ctx.id) };
+      return await prisma.aiTaskLog.findMany({
+        where,
+        orderBy: { startedAt: 'desc' },
+        skip: (input.page - 1) * input.size,
+        take: input.size,
+      });
     }),
 
   testConnect: authProcedure

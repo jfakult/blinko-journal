@@ -16,9 +16,9 @@ import { CoreMessage } from '@mastra/core';
 import { MDocument } from '@mastra/rag';
 import { embedMany } from 'ai';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
-import { userCaller } from '../routerTrpc/_app';
 
 import { getAllPathTags } from '@server/lib/helper';
+import { logAiTaskStart, logAiTaskFinish } from '@server/lib/aiTaskLog';
 import { commentWebhookInclude, sendCommentWebhook } from '@server/lib/commentWebhook';
 import { LibSQLVector } from '@mastra/libsql';
 import { RuntimeContext } from "@mastra/core/di";
@@ -302,6 +302,7 @@ export class AiService {
   }
 
   static async AIComment({ content, noteId }: { content: string; noteId: number }) {
+    let taskLogId: number | null = null;
     try {
       const note = await prisma.notes.findUnique({
         where: { id: noteId },
@@ -311,6 +312,8 @@ export class AiService {
       if (!note) {
         throw new Error('Note not found');
       }
+
+      taskLogId = await logAiTaskStart({ accountId: note.accountId, taskType: 'aiComment', noteId });
 
       const agent = await AiModelFactory.CommentAgent();
       const result = await agent.generate([
@@ -341,9 +344,11 @@ export class AiService {
         content: 'comment-notification',
         type: NotificationType.COMMENT,
       });
+      await logAiTaskFinish(taskLogId, 'success');
       return comment;
     } catch (error) {
       console.log(error);
+      await logAiTaskFinish(taskLogId, 'error', error?.toString());
       throw new Error(error);
     }
   }
@@ -385,12 +390,60 @@ export class AiService {
     return scores;
   }
 
+  // CUSTOM-JOURNAL: appends AI-suggested tags via optimistic-concurrency
+  // compare-and-swap -- only writes if the note's content AND updatedAt still
+  // match what was read before the (slow) tag-suggestion call, and preserves
+  // the original updatedAt on success so a purely-background tag pass never
+  // reorders "recently updated" sort or looks like a user edit. On a lost
+  // race this just skips rather than risking a clobber: the note stays
+  // untagged and gets picked up again by the next post-process pass or the
+  // nightly tag audit, so nothing is ever destroyed, only occasionally
+  // deferred. Also re-embeds on success so newly-added tags stay searchable,
+  // matching what note.ts's upsert would have done.
+  static async appendTagsIfUnchanged({
+    noteId,
+    accountId,
+    expectedContent,
+    expectedUpdatedAt,
+    tags,
+  }: {
+    noteId: number;
+    accountId: number;
+    expectedContent: string;
+    expectedUpdatedAt: Date;
+    tags: string[];
+  }): Promise<boolean> {
+    if (tags.length === 0) return true;
+    const newContent = `${expectedContent}\n${tags.join(' ')}`;
+    const { count } = await prisma.notes.updateMany({
+      where: { id: noteId, content: expectedContent, updatedAt: expectedUpdatedAt },
+      data: { content: newContent, updatedAt: expectedUpdatedAt },
+    });
+    if (count === 0) {
+      console.warn(`[AI tagging] skipped appending tags to note ${noteId}: note changed since read, avoiding clobber`);
+      return false;
+    }
+    await syncNoteTagsFromContent(noteId, accountId, newContent);
+    try {
+      const config = await AiModelFactory.globalConfig();
+      if (config.embeddingModelId) {
+        const note = await prisma.notes.findUnique({ where: { id: noteId }, select: { createdAt: true } });
+        if (note) {
+          AiService.embeddingUpsert({ id: noteId, content: newContent, type: 'update', createTime: note.createdAt, updatedAt: expectedUpdatedAt });
+        }
+      }
+    } catch (error) {
+      console.error('Error re-embedding after tag append:', error);
+    }
+    return true;
+  }
+
   static async postProcessNote({ noteId, ctx }: { noteId: number; ctx: Context }) {
+    let taskLogId: number | null = null;
     try {
       const runtimeContext = new RuntimeContext();
       runtimeContext.set('accountId', ctx.id);
 
-      const caller = userCaller(ctx);
       // Get the configuration
       const config = await AiModelFactory.globalConfig();
 
@@ -406,6 +459,7 @@ export class AiService {
           content: true,
           accountId: true,
           type: true,
+          updatedAt: true,
           tags: {
             include: {
               tag: true,
@@ -433,6 +487,7 @@ export class AiService {
       }
 
       const processingMode = config.aiPostProcessingMode || 'comment';
+      taskLogId = await logAiTaskStart({ accountId: note.accountId, taskType: 'postProcess', noteId, message: `mode: ${processingMode}` });
 
       // Handle custom processing mode
       if (processingMode === 'custom') {
@@ -468,6 +523,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
           runtimeContext
         });
 
+        await logAiTaskFinish(taskLogId, 'success', 'Custom processing completed');
         return { success: true, message: 'Custom processing completed' };
       }
 
@@ -515,9 +571,12 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       if (processingMode === 'tags' || processingMode === 'both') {
         try {
           const suggestedTags = await AiService.suggestTags(note.content);
-          caller.notes.upsert({
-            id: noteId,
-            content: note.content + '\n' + suggestedTags.join(' '),
+          await AiService.appendTagsIfUnchanged({
+            noteId,
+            accountId: note.accountId!,
+            expectedContent: note.content,
+            expectedUpdatedAt: note.updatedAt,
+            tags: suggestedTags,
           });
         } catch (error) {
           console.error('Error processing tags:', error);
@@ -526,13 +585,16 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         try {
           const moodScores = await AiService.scoreMood(note.content);
           if (Object.keys(moodScores).length > 0) {
-            await prisma.notes.update({ where: { id: noteId }, data: { moodScores } });
+            await prisma.notes.update({ where: { id: noteId }, data: { moodScores, updatedAt: note.updatedAt } });
           }
         } catch (error) {
           console.error('Error scoring mood:', error);
         }
 
-        await prisma.notes.update({ where: { id: noteId }, data: { aiTaggedAt: new Date() } });
+        // CUSTOM-JOURNAL: preserve updatedAt here too -- marking a note as
+        // AI-tagged is a background bookkeeping write, not a user edit, and
+        // shouldn't bump "recently updated" sort.
+        await prisma.notes.update({ where: { id: noteId }, data: { aiTaggedAt: new Date(), updatedAt: note.updatedAt } });
       }
 
       if (processingMode === 'smartEdit' || processingMode === 'both') {
@@ -577,9 +639,11 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         }
       }
 
+      await logAiTaskFinish(taskLogId, 'success', `mode: ${processingMode}`);
       return { success: true, message: 'Note processed successfully' };
     } catch (error) {
       console.error('Error in post-processing note:', error);
+      await logAiTaskFinish(taskLogId, 'error', error.message || 'Unknown error');
       return { success: false, message: error.message || 'Unknown error' };
     }
   }
@@ -720,9 +784,8 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
 
   // CUSTOM-JOURNAL: transcribes every not-yet-transcribed audio attachment on
   // a note and appends each transcript under its own "## Audio Transcription"
-  // heading. Re-reads content immediately before writing (not a stale
-  // in-memory snapshot) so a concurrent text edit isn't clobbered. Shared by
-  // note.ts's create/update paths and tagAuditJob.ts's backfill pass.
+  // heading. Shared by note.ts's create/update paths and tagAuditJob.ts's
+  // backfill pass.
   static async transcribeAndAppend({ noteId, accountId }: { noteId: number; accountId: number }): Promise<{ transcribedAny: boolean }> {
     const config = await AiModelFactory.globalConfig();
     if (!config.voiceModelId) return { transcribedAny: false };
@@ -730,6 +793,13 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     const pendingAttachments = (await prisma.attachments.findMany({ where: { noteId, transcribedAt: null } }))
       .filter((a) => AiService.isAudio(a.name || a.path));
     if (pendingAttachments.length === 0) return { transcribedAny: false };
+
+    const taskLogId = await logAiTaskStart({
+      accountId,
+      taskType: 'transcription',
+      noteId,
+      message: `${pendingAttachments.length} audio attachment(s)`,
+    });
 
     const { success, transcriptions } = await AiService.processNoteAudioAttachments({
       attachments: pendingAttachments,
@@ -745,21 +815,49 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       data: { transcribedAt: new Date() },
     });
 
-    if (!success || transcriptions.length === 0) return { transcribedAny: false };
-
-    const current = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, createdAt: true } });
-    if (!current) return { transcribedAny: false };
+    if (!success || transcriptions.length === 0) {
+      await logAiTaskFinish(taskLogId, 'error', 'Transcription failed or produced no text');
+      return { transcribedAny: false };
+    }
 
     const heading = transcriptions.length > 1 ? (i: number) => `Audio Transcription ${i + 1}` : () => 'Audio Transcription';
     const appended = transcriptions.map((t, i) => `\n\n## ${heading(i)}\n${t.transcription}`).join('');
-    const newContent = current.content + appended;
 
-    await prisma.notes.update({ where: { id: noteId }, data: { content: newContent } });
+    // CUSTOM-JOURNAL: CAS-retry the content write against freshly-read
+    // content/updatedAt each attempt. Transcripts must never be silently
+    // lost (the attachments above are already marked transcribedAt, so a
+    // dropped write here would never be retried), but a blind overwrite
+    // could clobber a concurrent user edit -- so only ever commit if nothing
+    // changed underneath us since the read, and keep retrying against the
+    // latest content until it succeeds. Also preserves the pre-transcript
+    // updatedAt so a background transcription completing doesn't bump
+    // "recently updated" sort.
+    const MAX_ATTEMPTS = 5;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const current = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, createdAt: true, updatedAt: true } });
+      if (!current) {
+        await logAiTaskFinish(taskLogId, 'error', 'Note no longer exists');
+        return { transcribedAny: false };
+      }
 
-    if (config.embeddingModelId) {
-      AiService.embeddingUpsert({ id: noteId, content: newContent, type: 'update', createTime: current.createdAt, updatedAt: new Date() });
+      const newContent = current.content + appended;
+      const { count } = await prisma.notes.updateMany({
+        where: { id: noteId, content: current.content, updatedAt: current.updatedAt },
+        data: { content: newContent, updatedAt: current.updatedAt },
+      });
+
+      if (count > 0) {
+        if (config.embeddingModelId) {
+          AiService.embeddingUpsert({ id: noteId, content: newContent, type: 'update', createTime: current.createdAt, updatedAt: current.updatedAt });
+        }
+        await logAiTaskFinish(taskLogId, 'success', `Appended ${transcriptions.length} transcript(s)`);
+        return { transcribedAny: true };
+      }
+      // Lost the race against a concurrent write -- retry against fresh content.
     }
 
-    return { transcribedAny: true };
+    console.error(`[transcription] failed to append transcript to note ${noteId} after ${MAX_ATTEMPTS} attempts (concurrent writes)`);
+    await logAiTaskFinish(taskLogId, 'error', `Failed after ${MAX_ATTEMPTS} attempts (concurrent writes)`);
+    return { transcribedAny: false };
   }
 }

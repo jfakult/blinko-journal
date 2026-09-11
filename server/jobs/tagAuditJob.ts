@@ -4,6 +4,7 @@ import { NotificationType } from "@shared/lib/prismaZodType";
 import { CreateNotification } from "../routerTrpc/notification";
 import { AiService } from "@server/aiServer";
 import { syncNoteTagsFromContent } from "@server/lib/helper";
+import { logAiTaskStart, logAiTaskFinish } from "@server/lib/aiTaskLog";
 
 // CUSTOM-JOURNAL: backfills AI tagging + mood scoring for notes that never
 // got either -- e.g. notes created before AI Post-Processing was turned on,
@@ -38,6 +39,11 @@ export class TagAuditJob extends BaseScheduleJob {
   protected static taskName = TAG_AUDIT_TASK_NAME;
   protected static cronSchedule = '0 3 * * *';
   private static forceStopFlag = false;
+  // CUSTOM-JOURNAL: id of the aiTaskLog row for the run currently in
+  // RunTask -- this job is effectively single-flight (same pattern as
+  // forceStopFlag above), so a static field is enough to thread it through
+  // RunTask's several return points without changing every signature.
+  private static currentLogId: number | null = null;
 
   private static async getProgressFromCache(): Promise<TagAuditProgress | null> {
     const cached = await prisma.cache.findUnique({ where: { key: PROGRESS_CACHE_KEY } });
@@ -157,6 +163,12 @@ export class TagAuditJob extends BaseScheduleJob {
       return currentProgress;
     }
 
+    this.currentLogId = await logAiTaskStart({
+      accountId: null,
+      taskType: 'tagAudit',
+      message: `Tag audit run starting (${currentProgress.current || 0}/${currentProgress.total || '?'} already done)`,
+    });
+
     try {
       this.forceStopFlag = false;
       const processedIds = new Set<number>(currentProgress.processedNoteIds || []);
@@ -179,6 +191,7 @@ export class TagAuditJob extends BaseScheduleJob {
         }
         const latestProgress = await this.getProgressFromCache();
         if (latestProgress && !latestProgress.isRunning) {
+          await logAiTaskFinish(this.currentLogId, 'stopped', `Stopped externally at ${current}/${total}`);
           return latestProgress;
         }
 
@@ -194,25 +207,40 @@ export class TagAuditJob extends BaseScheduleJob {
             // create-path sequencing too -- transcribe pending audio first
             // so a voice-only entry doesn't get tagged on empty content.
             let noteContent = note.content;
+            let noteUpdatedAt = note.updatedAt;
             if (await AiService.hasPendingAudioTranscription(note.id)) {
               await AiService.transcribeAndAppend({ noteId: note.id, accountId: note.accountId! });
-              const refreshed = await prisma.notes.findUnique({ where: { id: note.id }, select: { content: true } });
+              const refreshed = await prisma.notes.findUnique({ where: { id: note.id }, select: { content: true, updatedAt: true } });
               noteContent = refreshed?.content ?? note.content;
+              noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
             }
 
             const suggestedTags = await AiService.suggestTags(noteContent);
-            const newContent = suggestedTags.length > 0 ? `${noteContent}\n${suggestedTags.join(' ')}` : noteContent;
-            if (newContent !== noteContent) {
-              await prisma.notes.update({ where: { id: note.id }, data: { content: newContent } });
+            if (suggestedTags.length > 0) {
+              // CUSTOM-JOURNAL: CAS write -- skips (self-heals next audit
+              // run) rather than clobbering if the note changed underneath
+              // this backfill pass. See appendTagsIfUnchanged.
+              await AiService.appendTagsIfUnchanged({
+                noteId: note.id,
+                accountId: note.accountId!,
+                expectedContent: noteContent,
+                expectedUpdatedAt: noteUpdatedAt,
+                tags: suggestedTags,
+              });
+            } else {
+              // Defensive: pick up any manually-typed hashtags not yet synced.
+              await syncNoteTagsFromContent(note.id, note.accountId!, noteContent);
             }
-            await syncNoteTagsFromContent(note.id, note.accountId!, newContent);
 
             const moodScores = await AiService.scoreMood(noteContent);
 
+            // CUSTOM-JOURNAL: preserve updatedAt -- this is a background
+            // backfill bookkeeping write, not a user edit.
             await prisma.notes.update({
               where: { id: note.id },
               data: {
                 aiTaggedAt: new Date(),
+                updatedAt: noteUpdatedAt,
                 ...(Object.keys(moodScores).length > 0 && { moodScores }),
               },
             });
@@ -257,9 +285,11 @@ export class TagAuditJob extends BaseScheduleJob {
         useAdmin: true,
       });
 
+      await logAiTaskFinish(this.currentLogId, 'success', `Tagged ${current}/${total} notes (${failedIds.size} failed)`);
       return finalProgress;
     } catch (error) {
       console.error("Error running tag audit:", error);
+      await logAiTaskFinish(this.currentLogId, 'error', error?.toString());
       const errorProgress: TagAuditProgress = {
         ...currentProgress,
         isRunning: false,
@@ -291,6 +321,7 @@ export class TagAuditJob extends BaseScheduleJob {
       failedNoteIds: Array.from(failedIds),
       startTime: new Date().toISOString(),
     };
+    await logAiTaskFinish(this.currentLogId, 'stopped', `Stopped at ${current}/${total}`);
     await this.saveProgressToCache(stoppedProgress);
     return stoppedProgress;
   }

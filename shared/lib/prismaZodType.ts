@@ -121,6 +121,23 @@ export const moodAxisSchema = z.object({
 export type moodAxis = z.infer<typeof moodAxisSchema>
 
 /////////////////////////////////////////
+// AI TASK LOG SCHEMA
+/////////////////////////////////////////
+
+export const aiTaskLogSchema = z.object({
+  id: z.number().int(),
+  accountId: z.number().int().nullable(),
+  taskType: z.string(),
+  status: z.string(),
+  noteId: z.number().int().nullable(),
+  message: z.string().nullable(),
+  startedAt: z.coerce.date(),
+  finishedAt: z.coerce.date().nullable(),
+})
+
+export type aiTaskLog = z.infer<typeof aiTaskLogSchema>
+
+/////////////////////////////////////////
 // TAGS TO NOTE SCHEMA
 /////////////////////////////////////////
 

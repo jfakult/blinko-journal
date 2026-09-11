@@ -4,6 +4,7 @@ import { NotificationType } from "@shared/lib/prismaZodType";
 import { CreateNotification } from "../routerTrpc/notification";
 import { AiModelFactory } from "@server/aiServer/aiModelFactory";
 import { AiService } from "@server/aiServer";
+import { logAiTaskStart, logAiTaskFinish } from "@server/lib/aiTaskLog";
 
 export const REBUILD_EMBEDDING_TASK_NAME = "rebuildEmbedding";
 const PROGRESS_CACHE_KEY = "rebuild-embedding-progress";
@@ -37,6 +38,9 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
   protected static taskName = REBUILD_EMBEDDING_TASK_NAME;
   protected static cronSchedule = '0 0 * * *';
   private static forceStopFlag = false;
+  // CUSTOM-JOURNAL: see TagAuditJob.currentLogId -- same single-flight
+  // static-field pattern for threading the aiTaskLog row id through RunTask.
+  private static currentLogId: number | null = null;
 
   /**
    * Get progress from cache table
@@ -172,6 +176,12 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
       return currentProgress;
     }
 
+    this.currentLogId = await logAiTaskStart({
+      accountId: null,
+      taskType: 'embeddingRebuild',
+      message: `Embedding rebuild starting (${currentProgress.current || 0}/${currentProgress.total || '?'} already done)`,
+    });
+
     try {
       this.forceStopFlag = false;
 
@@ -213,6 +223,7 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
 
         const latestProgress = await this.getProgressFromCache();
         if (latestProgress && !latestProgress.isRunning) {
+          await logAiTaskFinish(this.currentLogId, 'stopped', `Stopped externally at ${current}/${total}`);
           return latestProgress;
         }
 
@@ -316,9 +327,11 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
         useAdmin: true,
       });
 
+      await logAiTaskFinish(this.currentLogId, 'success', `Rebuilt ${current}/${total} notes (${failedIds.size} failed)`);
       return finalProgress;
     } catch (error) {
       console.error("Error rebuilding embedding index:", error);
+      await logAiTaskFinish(this.currentLogId, 'error', error?.toString());
 
       const errorProgress: RebuildProgress = {
         ...currentProgress,
@@ -350,6 +363,7 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
       isIncremental: true
     };
 
+    await logAiTaskFinish(this.currentLogId, 'stopped', `Stopped at ${current}/${total}`);
     await this.saveProgressToCache(stoppedProgress);
     return stoppedProgress;
   }
