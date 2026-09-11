@@ -21,8 +21,10 @@ compose up`, containing:
   `192.168.1.203:5432`, with the actual username/password (not
   `mysecretpassword`, the placeholder still sitting in `.env.prod.tmpl`).
 - `OLLAMA_BASE_URL` / `OLLAMA_CHAT_MODEL` / `OLLAMA_EMBEDDING_MODEL` /
-  `OLLAMA_VISION_MODEL` / `WHISPER_BASE_URL` (only once the whisper service
-  below is actually deployed) / `WHISPER_MODEL` - not secrets, but templating
+  `OLLAMA_VISION_MODEL` / `OLLAMA_POST_PROCESSING_MODEL` (optional - separate
+  model for tag/mood/comment post-processing, falls back to
+  `OLLAMA_CHAT_MODEL` if left unset) / `WHISPER_BASE_URL` (only once the
+  whisper service below is actually deployed) / `WHISPER_MODEL` - not secrets, but templating
   them through the same `.env` mechanism means swapping a model is an Ansible
   var change + a redeploy, not a hand-edit of a committed compose file. See
   `.env.prod.tmpl` for current defaults and `docs/workstreams/04-ai-pipeline.md`.

@@ -7,7 +7,7 @@ import { CoreMessage } from '@mastra/core';
 import { AiModelFactory } from '@server/aiServer/aiModelFactory';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
 import { TagAuditJob } from '../jobs/tagAuditJob';
-import { moodAxisSchema, aiTaskLogSchema } from '@shared/lib/prismaZodType';
+import { moodAxisSchema, aiTaskLogSchema, aiTaskLogDetailSchema } from '@shared/lib/prismaZodType';
 import { getAllPathTags } from '@server/lib/helper';
 import { ModelCapabilities } from '@server/aiServer/types';
 import { aiProviders, aiModels } from '@shared/lib/prismaZodType';
@@ -378,12 +378,47 @@ export const aiRouter = router({
     .query(async ({ input, ctx }) => {
       const isSuperAdmin = ctx.role === 'superadmin';
       const where = isSuperAdmin && input.scope === 'all' ? {} : { accountId: Number(ctx.id) };
-      return await prisma.aiTaskLog.findMany({
+      const rows = await prisma.aiTaskLog.findMany({
         where,
         orderBy: { startedAt: 'desc' },
         skip: (input.page - 1) * input.size,
         take: input.size,
+        // CUSTOM-JOURNAL: deliberately not selecting `calls` here -- it can
+        // hold full input/output text per call, so the list stays light and
+        // the full detail (including calls) is fetched on demand via
+        // aiTaskLogGet when a row is clicked.
+        select: {
+          id: true, accountId: true, taskType: true, status: true, noteId: true,
+          message: true, startedAt: true, finishedAt: true, callCount: true,
+          account: { select: { nickname: true, name: true } },
+        },
       });
+      return rows.map((row) => ({
+        ...row,
+        accountName: row.account?.nickname || row.account?.name || null,
+      }));
+    }),
+
+  // CUSTOM-JOURNAL: full detail for one task log row (including its `calls`
+  // array with per-call input/output) -- fetched only when a row is
+  // clicked, not as part of the list. Same access rule as aiTaskLogList:
+  // non-superadmins can only ever fetch their own rows.
+  aiTaskLogGet: authProcedure
+    .input(z.object({ id: z.number() }))
+    .output(aiTaskLogDetailSchema.nullable())
+    .query(async ({ input, ctx }) => {
+      const isSuperAdmin = ctx.role === 'superadmin';
+      const row = await prisma.aiTaskLog.findUnique({
+        where: { id: input.id },
+        include: { account: { select: { nickname: true, name: true } } },
+      });
+      if (!row) return null;
+      if (!isSuperAdmin && row.accountId !== Number(ctx.id)) return null;
+      return {
+        ...row,
+        accountName: row.account?.nickname || row.account?.name || null,
+        calls: Array.isArray(row.calls) ? (row.calls as any[]) : [],
+      };
     }),
 
   testConnect: authProcedure

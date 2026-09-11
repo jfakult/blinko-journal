@@ -38,6 +38,10 @@ services:
       OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-llama3.1}
       OLLAMA_EMBEDDING_MODEL: ${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
       OLLAMA_VISION_MODEL: ${OLLAMA_VISION_MODEL:-llava}
+      # No `:-default` on purpose (like WHISPER_BASE_URL below) -- unset
+      # means "post-processing just uses OLLAMA_CHAT_MODEL," which is
+      # already seed.ts's fallback behavior, so there's nothing to default to.
+      OLLAMA_POST_PROCESSING_MODEL: ${OLLAMA_POST_PROCESSING_MODEL:-}
       # WHISPER_BASE_URL is intentionally NOT given a `:-default` fallback:
       # seed.ts treats "unset" as "voice transcription isn't deployed yet"
       # and skips creating the Whisper provider/voiceModelId entirely (see its

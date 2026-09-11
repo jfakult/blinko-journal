@@ -71,6 +71,13 @@ export const ZConfigKey = z.union([
   z.literal('isAutoArchived'),
   z.literal('autoArchivedDays'),
   z.literal('mainModelId'),
+  // CUSTOM-JOURNAL: model used for AI Post-Processing (tag suggestion, mood
+  // scoring, the auto-comment/smartEdit/custom modes, and the tagAuditJob
+  // backfill) -- null/unset falls back to mainModelId. Separate from the
+  // interactive chat agent's model on purpose: post-processing runs on
+  // every note automatically, so a cheaper/faster/local model is often
+  // preferable there even when a stronger model is set for chat.
+  z.literal('postProcessingModelId'),
   z.literal('embeddingModelId'),
   z.literal('voiceModelId'),
   z.literal('rerankModelId'),
@@ -136,6 +143,7 @@ export const ZConfigSchema = z.object({
   isAutoArchived: z.boolean().optional(),
   autoArchivedDays: z.number().nullable().optional(),
   mainModelId: z.number().nullable().optional(),
+  postProcessingModelId: z.number().nullable().optional(),
   embeddingModelId: z.number().nullable().optional(),
   voiceModelId: z.number().nullable().optional(),
   rerankModelId: z.number().nullable().optional(),

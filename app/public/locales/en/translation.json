@@ -890,5 +890,15 @@
   "ai-task-type-transcription": "Transcription",
   "ai-task-type-aiComment": "AI Comment",
   "ai-task-type-tagAudit": "Tag Audit",
-  "ai-task-type-embeddingRebuild": "Embedding Rebuild"
+  "ai-task-type-embeddingRebuild": "Embedding Rebuild",
+  "who-ran-it": "Who ran it",
+  "started": "Started",
+  "duration": "Duration",
+  "system": "System",
+  "input": "Input",
+  "output": "Output",
+  "unknown-model": "Unknown model",
+  "calls-count_one": "{{count}} call",
+  "calls-count_other": "{{count}} calls",
+  "no-calls-recorded": "No individual calls recorded for this task."
 }

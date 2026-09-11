@@ -18,7 +18,7 @@ import { embedMany } from 'ai';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
 
 import { getAllPathTags } from '@server/lib/helper';
-import { logAiTaskStart, logAiTaskFinish } from '@server/lib/aiTaskLog';
+import { logAiTaskStart, logAiTaskFinish, callAgentWithLog } from '@server/lib/aiTaskLog';
 import { commentWebhookInclude, sendCommentWebhook } from '@server/lib/commentWebhook';
 import { LibSQLVector } from '@mastra/libsql';
 import { RuntimeContext } from "@mastra/core/di";
@@ -316,16 +316,19 @@ export class AiService {
       taskLogId = await logAiTaskStart({ accountId: note.accountId, taskType: 'aiComment', noteId });
 
       const agent = await AiModelFactory.CommentAgent();
-      const result = await agent.generate([
-        {
-          role: 'user',
-          content: content,
-        },
-        {
-          role: 'user',
-          content: `This is the note content: ${note.content}`,
-        },
-      ]);
+      const messages = [
+        { role: 'user' as const, content },
+        { role: 'user' as const, content: `This is the note content: ${note.content}` },
+      ];
+      const modelInfo = await AiService.#getPostProcessingModelInfo();
+      const result = await callAgentWithLog({
+        taskLogId,
+        agent: 'CommentAgent',
+        provider: modelInfo.provider,
+        modelTitle: modelInfo.title,
+        input: messages.map((m) => m.content).join('\n\n'),
+        run: () => agent.generate(messages),
+      });
 
       const comment = await prisma.comments.create({
         data: {
@@ -353,30 +356,62 @@ export class AiService {
     }
   }
 
+  // CUSTOM-JOURNAL: resolves the model actually backing post-processing
+  // agents (postProcessingModelId, falling back to mainModelId) purely for
+  // aiTaskLog display purposes -- a small redundant lookup rather than
+  // threading model metadata back out of AiModelFactory's agent factory.
+  static async #getPostProcessingModelInfo(config?: any): Promise<{ provider: string | null; title: string | null }> {
+    try {
+      const globalConfig = config ?? (await AiModelFactory.globalConfig());
+      const modelId = globalConfig.postProcessingModelId || globalConfig.mainModelId;
+      if (!modelId) return { provider: null, title: null };
+      const model = await AiModelFactory.getAiModel(modelId);
+      return { provider: model?.provider?.title ?? model?.provider?.provider ?? null, title: model?.title ?? null };
+    } catch {
+      return { provider: null, title: null };
+    }
+  }
+
   // CUSTOM-JOURNAL: shared by postProcessNote's live 'tags'/'both' path and
   // server/jobs/tagAuditJob.ts's backfill pass, so both run identical logic.
-  static async suggestTags(content: string): Promise<string[]> {
+  static async suggestTags(content: string, taskLogId: number | null = null): Promise<string[]> {
     const config = await AiModelFactory.globalConfig();
     const aiTagsPrompt = config.aiTagsPrompt;
     const tagAgent = aiTagsPrompt ? await AiModelFactory.TagAgent(aiTagsPrompt) : await AiModelFactory.TagAgent();
     const tags = await getAllPathTags();
-    const result = await tagAgent.generate(
-      `Existing tags list:  [${tags.join(', ')}]\n Note content:\n${content}`
-    );
+    const input = `Existing tags list:  [${tags.join(', ')}]\n Note content:\n${content}`;
+    const modelInfo = await AiService.#getPostProcessingModelInfo(config);
+    const result = await callAgentWithLog({
+      taskLogId,
+      agent: 'TagAgent',
+      provider: modelInfo.provider,
+      modelTitle: modelInfo.title,
+      input,
+      run: () => tagAgent.generate(input),
+    });
     return result.text.split(',').map((tag: string) => tag.trim()).filter(Boolean).slice(0, 5);
   }
 
   // CUSTOM-JOURNAL: scores every active moodAxis (0-100) for a note's content,
   // returning a map keyed by moodAxis.id (string) ready to store directly in
   // notes.moodScores. Shared the same way suggestTags is.
-  static async scoreMood(content: string): Promise<Record<string, number>> {
+  static async scoreMood(content: string, taskLogId: number | null = null): Promise<Record<string, number>> {
     const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
     if (axes.length === 0) return {};
     const axesDescription = axes
       .map((axis) => (axis.negativeLabel ? `${axis.positiveLabel}/${axis.negativeLabel}` : axis.positiveLabel))
       .join('\n');
     const moodAgent = await AiModelFactory.MoodAgent(axesDescription);
-    const result = await moodAgent.generate(`Entry content:\n${content}`);
+    const input = `Entry content:\n${content}`;
+    const modelInfo = await AiService.#getPostProcessingModelInfo();
+    const result = await callAgentWithLog({
+      taskLogId,
+      agent: 'MoodAgent',
+      provider: modelInfo.provider,
+      modelTitle: modelInfo.title,
+      input,
+      run: () => moodAgent.generate(input),
+    });
     const scores: Record<string, number> = {};
     const pairs = result.text.split(',').map((pair: string) => pair.trim()).filter(Boolean);
     for (const pair of pairs) {
@@ -504,6 +539,7 @@ export class AiService {
         const agent = await AiModelFactory.BaseChatAgent({
           withTools: true,
           withOnlineSearch: withOnlineSearch,
+          model: await AiModelFactory.GetPostProcessingLLM(),
           extraInstructions: `You are an AI assistant that helps to process notes. You MUST use the available tools to complete your task.
 This is a one-time conversation, so you MUST take action immediately using the tools provided.
 You have access to tools that can help you modify notes, add comments, or create new notes.
@@ -513,14 +549,13 @@ If you need to update the note, use the updateBlinkoTool.
 If you need to create a new note, use the upsertBlinkoTool.
 Remember: ALWAYS use tools to implement your suggestions rather than just describing what should be done.`,
         });
-        const result = await agent.generate([
-          {
-            role: 'user',
-            content: `Current user name: ${ctx.name}\n${customPrompt}\n\nNote ID: ${noteId}\nNote content:\n${note.content}
-            Current Note Type: ${noteType}`
-          }
-        ], {
-          runtimeContext
+        const customInput = `Current user name: ${ctx.name}\n${customPrompt}\n\nNote ID: ${noteId}\nNote content:\n${note.content}
+            Current Note Type: ${noteType}`;
+        await callAgentWithLog({
+          taskLogId,
+          agent: 'BaseChatAgent (custom)',
+          input: customInput,
+          run: () => agent.generate([{ role: 'user', content: customInput }], { runtimeContext }),
         });
 
         await logAiTaskFinish(taskLogId, 'success', 'Custom processing completed');
@@ -530,23 +565,31 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       // Get the custom prompt, or use default
       const prompt = config.aiCommentPrompt || 'Analyze the following note content. Extract key topics as tags and provide a brief summary of the main points.';
 
-      // Process with AI
-      const agent = await AiModelFactory.CommentAgent();
-      const result = await agent.generate([
-        {
-          role: 'user',
-          content: prompt,
-        },
-        {
-          role: 'user',
-          content: `Note content: ${note.content}`,
-        },
-      ]);
-
-      const aiResponse = result.text.trim();
-
-      // Handle based on the processing mode
+      // CUSTOM-JOURNAL: this CommentAgent call used to run unconditionally
+      // for every processing mode (including 'tags', this journal's seeded
+      // default), even though its result (aiResponse) is only ever used
+      // inside the comment/both branch below -- meaning every 'tags'-only
+      // pass burned an LLM call for a response nothing read. Moved inside
+      // the branch that actually needs it. (Found via aiTaskLog call
+      // logging showing a 'tags' pass making more calls than the tags/mood
+      // logic alone accounts for.)
       if (processingMode === 'comment' || processingMode === 'both') {
+        const agent = await AiModelFactory.CommentAgent();
+        const commentInput = `${prompt}\n\nNote content: ${note.content}`;
+        const modelInfo = await AiService.#getPostProcessingModelInfo(config);
+        const result = await callAgentWithLog({
+          taskLogId,
+          agent: 'CommentAgent',
+          provider: modelInfo.provider,
+          modelTitle: modelInfo.title,
+          input: commentInput,
+          run: () => agent.generate([
+            { role: 'user', content: prompt },
+            { role: 'user', content: `Note content: ${note.content}` },
+          ]),
+        });
+        const aiResponse = result.text.trim();
+
         // Add comment
         const comment = await prisma.comments.create({
           data: {
@@ -570,7 +613,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
 
       if (processingMode === 'tags' || processingMode === 'both') {
         try {
-          const suggestedTags = await AiService.suggestTags(note.content);
+          const suggestedTags = await AiService.suggestTags(note.content, taskLogId);
           await AiService.appendTagsIfUnchanged({
             noteId,
             accountId: note.accountId!,
@@ -583,7 +626,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         }
 
         try {
-          const moodScores = await AiService.scoreMood(note.content);
+          const moodScores = await AiService.scoreMood(note.content, taskLogId);
           if (Object.keys(moodScores).length > 0) {
             await prisma.notes.update({ where: { id: noteId }, data: { moodScores, updatedAt: note.updatedAt } });
           }
@@ -602,15 +645,15 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
           const smartEditPrompt = config.aiSmartEditPrompt || 'Improve this note by organizing content, adding headers, and enhancing readability.';
           const agent = await AiModelFactory.BaseChatAgent({
             withTools: true,
+            model: await AiModelFactory.GetPostProcessingLLM(),
             extraInstructions: `You are an AI assistant that helps to improve notes. You'll be provided with a note content, and your task is to enhance it according to instructions. You have access to tools that can help you modify the note. Use these tools to make the requested improvements.`,
           });
-          const result = await agent.generate([
-            {
-              role: 'user',
-              content: `\nCurrent user id: ${ctx.id}\nCurrent user name: ${ctx.name}\n${smartEditPrompt}\n\nNote ID: ${noteId}\nNote content:\n${note.content}`
-            }
-          ], {
-            runtimeContext
+          const smartEditInput = `\nCurrent user id: ${ctx.id}\nCurrent user name: ${ctx.name}\n${smartEditPrompt}\n\nNote ID: ${noteId}\nNote content:\n${note.content}`;
+          const result = await callAgentWithLog({
+            taskLogId,
+            agent: 'BaseChatAgent (smartEdit)',
+            input: smartEditInput,
+            run: () => agent.generate([{ role: 'user', content: smartEditInput }], { runtimeContext }),
           });
           const comment = await prisma.comments.create({
             data: {

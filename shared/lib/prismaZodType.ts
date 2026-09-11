@@ -127,15 +127,43 @@ export type moodAxis = z.infer<typeof moodAxisSchema>
 export const aiTaskLogSchema = z.object({
   id: z.number().int(),
   accountId: z.number().int().nullable(),
+  accountName: z.string().nullable().optional(),
   taskType: z.string(),
   status: z.string(),
   noteId: z.number().int().nullable(),
   message: z.string().nullable(),
   startedAt: z.coerce.date(),
   finishedAt: z.coerce.date().nullable(),
+  // CUSTOM-JOURNAL: list rows carry only the count -- the full `calls` array
+  // (with input/output text) is fetched on demand via aiTaskLogGet, so the
+  // list payload stays small regardless of how much prompt/response text a
+  // task's calls accumulated.
+  callCount: z.number().int().default(0),
 })
 
 export type aiTaskLog = z.infer<typeof aiTaskLogSchema>
+
+// CUSTOM-JOURNAL: one agent.generate() call within a task (a "Post-Processing"
+// task is often 2+ of these -- tags, mood, etc). See aiTaskLog.ts's logAiTaskCall.
+export const aiTaskLogCallSchema = z.object({
+  agent: z.string(),
+  provider: z.string().nullable().optional(),
+  modelTitle: z.string().nullable().optional(),
+  startedAt: z.coerce.date(),
+  finishedAt: z.coerce.date(),
+  durationMs: z.number(),
+  input: z.string(),
+  output: z.string(),
+  error: z.string().nullable().optional(),
+})
+
+export type aiTaskLogCall = z.infer<typeof aiTaskLogCallSchema>
+
+export const aiTaskLogDetailSchema = aiTaskLogSchema.omit({ callCount: true }).extend({
+  calls: z.array(aiTaskLogCallSchema),
+})
+
+export type aiTaskLogDetail = z.infer<typeof aiTaskLogDetailSchema>
 
 /////////////////////////////////////////
 // TAGS TO NOTE SCHEMA

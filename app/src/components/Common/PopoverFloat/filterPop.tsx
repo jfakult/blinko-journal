@@ -1,5 +1,5 @@
 import { Icon } from '@/components/Common/Iconify/icons';
-import { Popover, PopoverContent, PopoverTrigger, Select, SelectItem, Button, Radio, RadioGroup } from "@heroui/react";
+import { Popover, PopoverContent, PopoverTrigger, Select, SelectItem, Button, Radio, RadioGroup, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { RootStore } from "@/store";
 import { BlinkoStore } from "@/store/blinkoStore";
@@ -128,23 +128,27 @@ export default function FilterPop() {
     setIsOpen(false);
   };
 
+  // CUSTOM-JOURNAL: this used to be a Popover anchored below the trigger
+  // icon. Capping its height/width (previous fix) still wasn't enough -- an
+  // anchored popover's position is derived from the trigger's location, so
+  // near a screen edge it could still render partly off-screen with no way
+  // to reposition it fully back on-screen. A centered Modal has no anchor to
+  // go wrong: HeroUI keeps it centered and within the viewport regardless of
+  // where the trigger button sits, and scrollBehavior="inside" keeps
+  // Apply/Reset always reachable (pinned in the footer) even if the body
+  // content is taller than the screen.
   return (
-    <Popover placement="bottom-start" backdrop="blur" isOpen={isOpen} onOpenChange={setIsOpen}>
-      <PopoverTrigger>
-        <Button isIconOnly size="sm" variant="light">
-          <Icon className="cursor-pointer text-default-600" icon="tabler:filter-bolt" width="24" height="24" />
-        </Button>
-      </PopoverTrigger>
-      {/* CUSTOM-JOURNAL: the Sort section + always-visible tag search (both
-          added after this popover was first built) pushed its content
-          taller than a phone viewport, and it had no height/width cap at
-          all -- it just rendered past the screen edge with no way to reach
-          the Apply/Reset buttons. maxHeight caps it to the viewport
-          (scrolling internally instead), and the content div's max-w/
-          overflow-y-auto keep it from doing the same horizontally on
-          narrow phones. */}
-      <PopoverContent className="max-h-[85vh]">
-        <div className="p-4 flex flex-col gap-4 w-[300px] max-w-[calc(100vw-2rem)] max-h-[85vh] overflow-y-auto">
+    <>
+      <Button isIconOnly size="sm" variant="light" onPress={() => setIsOpen(true)}>
+        <Icon className="cursor-pointer text-default-600" icon="tabler:filter-bolt" width="24" height="24" />
+      </Button>
+      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} placement="center" scrollBehavior="inside" size="sm">
+        <ModalContent>
+          <ModalHeader className="flex items-center gap-2">
+            <Icon icon="tabler:filter-bolt" width="20" height="20" />
+            {t('filter-settings')}
+          </ModalHeader>
+          <ModalBody className="pb-4">
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium flex items-center gap-2">
               <Icon icon="solar:sort-by-time-broken" width="24" height="24" />
@@ -314,8 +318,8 @@ export default function FilterPop() {
               ))}
             </Select>
           </div>
-
-          <div className="flex gap-2">
+          </ModalBody>
+          <ModalFooter className="flex gap-2">
             <Button
               color="primary"
               onClick={handleApplyFilter}
@@ -332,9 +336,9 @@ export default function FilterPop() {
             >
               {t('reset')}
             </Button>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </>
   );
-} 
+}

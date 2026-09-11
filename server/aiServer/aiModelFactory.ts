@@ -244,6 +244,32 @@ export class AiModelFactory {
     return await AiModelFactory.globalConfig();
   }
 
+  // CUSTOM-JOURNAL: the LLM used for AI Post-Processing (tag suggestion,
+  // mood scoring, comment/smartEdit/custom modes, tagAuditJob backfill) --
+  // falls back to mainModelId when postProcessingModelId isn't set, so this
+  // is a safe drop-in for anything that used to just read provider.LLM.
+  // Deliberately lightweight (doesn't build embeddings/audio/etc like
+  // GetProvider does) since post-processing only ever needs a chat model.
+  static async GetPostProcessingLLM(): Promise<LanguageModelV1> {
+    const globalConfig = await AiModelFactory.globalConfig();
+    const modelId = globalConfig.postProcessingModelId || globalConfig.mainModelId;
+    if (!modelId) {
+      throw new Error('No AI model configured for post-processing (set a Main Chat Model or a Post-Processing Model)');
+    }
+    const model = await AiModelFactory.getAiModel(modelId);
+    if (!model) {
+      throw new Error('Post-processing model configuration not found');
+    }
+    const llmProvider = new LLMProvider();
+    return await llmProvider.getLanguageModel({
+      provider: model.provider.provider,
+      apiKey: model.provider.apiKey,
+      baseURL: model.provider.baseURL,
+      modelKey: model.modelKey,
+      apiVersion: (model.provider.config as any)?.apiVersion,
+    });
+  }
+
   static async GetProvider() {
     const globalConfig = await AiModelFactory.ValidConfig();
     if (!globalConfig.mainModelId) {
@@ -329,8 +355,12 @@ export class AiModelFactory {
       }
     };
   }
-  static async BaseChatAgent({ withTools = true, withOnlineSearch = false, withMcpTools = true, extraInstructions }: { withTools?: boolean; withOnlineSearch?: boolean; withMcpTools?: boolean; extraInstructions?: string }) {
-    const provider = await AiModelFactory.GetProvider();
+  static async BaseChatAgent({ withTools = true, withOnlineSearch = false, withMcpTools = true, extraInstructions, model }: { withTools?: boolean; withOnlineSearch?: boolean; withMcpTools?: boolean; extraInstructions?: string; model?: LanguageModelV1 }) {
+    // CUSTOM-JOURNAL: `model` lets a caller (postProcessNote's smartEdit/
+    // custom modes) use the post-processing model instead of mainModelId --
+    // skips GetProvider() entirely in that case since this agent only ever
+    // needs the chat model out of everything GetProvider builds.
+    const chatModel = model ?? (await AiModelFactory.GetProvider())?.LLM!;
     let tools: Record<string, any> = {};
     if (withTools) {
       tools = {
@@ -393,7 +423,7 @@ export class AiModelFactory {
     const BlinkoAgent = new Agent({
       name: 'Blinko Chat Agent',
       instructions,
-      model: provider?.LLM!,
+      model: chatModel,
       ...tools,
     });
 
@@ -414,16 +444,27 @@ export class AiModelFactory {
     options?: {
       tools?: Record<string, any>;
       isWritingAgent?: boolean;
+      // CUSTOM-JOURNAL: 'postProcessing' routes this agent through
+      // GetPostProcessingLLM() (postProcessingModelId, falling back to
+      // mainModelId) instead of the main chat provider -- set on the three
+      // agents AiService.postProcessNote/tagAuditJob actually use
+      // (TagAgent, MoodAgent, CommentAgent), so a user can point
+      // post-processing at a different (e.g. cheaper/local) model without
+      // affecting the interactive chat agent or the other single-purpose
+      // agents built through this same factory.
+      useModelId?: 'main' | 'postProcessing';
     },
   ) {
     return async (type?: 'expand' | 'polish' | 'custom' | string) => {
-      const provider = await AiModelFactory.GetProvider();
+      const model = options?.useModelId === 'postProcessing'
+        ? await AiModelFactory.GetPostProcessingLLM()
+        : (await AiModelFactory.GetProvider())?.LLM!;
       const finalPrompt = typeof systemPrompt === 'function' ? systemPrompt(type!) : systemPrompt;
 
       const agent = new Agent({
         name: options?.isWritingAgent ? `${name} - ${type}` : name,
         instructions: finalPrompt,
-        model: provider?.LLM!,
+        model,
         ...(options?.tools || {}),
       });
 
@@ -454,6 +495,7 @@ export class AiModelFactory {
           `;
     },
     'BlinkoTag',
+    { useModelId: 'postProcessing' },
   );
 
   static EmojiAgent = AiModelFactory.#createAgentFactory(
@@ -481,6 +523,7 @@ Rules:
 4. Response format: return only "label:score" pairs separated by commas, one per dimension given, in the same order, using each dimension's positiveLabel as the label. No spaces, no explanation, no code blocks or Markdown. Example: positive:70,anger:5,anxiety:15,joy:60,sadness:5,surprise:20,fear:5,excitement:55,gratitude:65`;
     },
     'BlinkoMood',
+    { useModelId: 'postProcessing' },
   );
 
   static RelatedNotesAgent = AiModelFactory.#createAgentFactory(
@@ -510,6 +553,7 @@ Rules:
      4. Keep responses concise (50-150 words)
      5. Match user's language`,
     'BlinkoComment',
+    { useModelId: 'postProcessing' },
   );
 
   static SummarizeAgent = AiModelFactory.#createAgentFactory(

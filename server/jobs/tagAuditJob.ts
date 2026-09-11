@@ -215,7 +215,7 @@ export class TagAuditJob extends BaseScheduleJob {
               noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
             }
 
-            const suggestedTags = await AiService.suggestTags(noteContent);
+            const suggestedTags = await AiService.suggestTags(noteContent, this.currentLogId);
             if (suggestedTags.length > 0) {
               // CUSTOM-JOURNAL: CAS write -- skips (self-heals next audit
               // run) rather than clobbering if the note changed underneath
@@ -232,7 +232,7 @@ export class TagAuditJob extends BaseScheduleJob {
               await syncNoteTagsFromContent(note.id, note.accountId!, noteContent);
             }
 
-            const moodScores = await AiService.scoreMood(noteContent);
+            const moodScores = await AiService.scoreMood(noteContent, this.currentLogId);
 
             // CUSTOM-JOURNAL: preserve updatedAt -- this is a background
             // backfill bookkeeping write, not a user edit.

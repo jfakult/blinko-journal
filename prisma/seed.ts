@@ -196,6 +196,26 @@ async function seedDefaultAiConfig() {
   }
   await setConfigIfMissing('imageModelId', visionModel.id);
 
+  // CUSTOM-JOURNAL: optional, separate model for AI Post-Processing (tag
+  // suggestion, mood scoring, comment/smartEdit/custom, tagAuditJob
+  // backfill) -- see aiModelFactory.ts's GetPostProcessingLLM. Only set up
+  // if given and different from the chat model; otherwise postProcessingModelId
+  // stays unset, which already falls back to mainModelId on its own, so
+  // there'd be nothing to gain from a redundant duplicate model row.
+  const postProcessingModelKey = process.env.OLLAMA_POST_PROCESSING_MODEL;
+  if (postProcessingModelKey && postProcessingModelKey !== chatModelKey) {
+    let postProcessingModel = await prisma.aiModels.findFirst({ where: { providerId: ollamaProvider.id, modelKey: postProcessingModelKey } });
+    if (!postProcessingModel) {
+      postProcessingModel = await prisma.aiModels.create({
+        data: {
+          providerId: ollamaProvider.id, title: `Ollama Post-Processing (${postProcessingModelKey})`, modelKey: postProcessingModelKey, sortOrder: 3,
+          capabilities: { inference: true, tools: true, image: false, imageGeneration: false, video: false, audio: false, embedding: false, rerank: false },
+        },
+      });
+    }
+    await setConfigIfMissing('postProcessingModelId', postProcessingModel.id);
+  }
+
   // --- Whisper provider (voice transcription) — only if actually deployed ---
   const whisperBaseURL = process.env.WHISPER_BASE_URL;
   if (whisperBaseURL) {

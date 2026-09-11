@@ -181,6 +181,13 @@ model aiTaskLog {
   message    String?   @db.VarChar(500)
   startedAt  DateTime  @default(now()) @db.Timestamptz(6)
   finishedAt DateTime? @db.Timestamptz(6)
+  // CUSTOM-JOURNAL: individual LLM calls this task made (a "Post-Processing"
+  // task is often 2+ separate agent.generate() calls -- tags, mood, etc).
+  // Appended atomically as each call completes, see aiTaskLog.ts's logAiTaskCall.
+  calls      Json?     @db.JsonB
+  // Denormalized calls.length, kept in sync atomically alongside each
+  // append so the list view never has to select the full `calls` column.
+  callCount  Int       @default(0)
   account    accounts? @relation(fields: [accountId], references: [id])
 
   @@index([accountId, startedAt])
