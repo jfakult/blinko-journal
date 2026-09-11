@@ -23,60 +23,39 @@ export default defineConfig({
         },
         // Auto update service worker when new version is available
         registerType: 'autoUpdate',
-        includeAssets: ['icons/Square*.png'],
+        includeAssets: ['icons/*.png'],
+        // CUSTOM-JOURNAL: this is the manifest actually used by the
+        // installed/production PWA (vite-plugin-pwa generates and injects
+        // its own manifest at build time, superseding public/manifest.json
+        // -- keep both in sync, see that file's own CUSTOM-JOURNAL note).
+        // Was still upstream's literal "Blinko" name + Blinko's own icon
+        // set + a plain white theme_color, which is why installing this app
+        // showed "Blinko" with Blinko's icons and a blank white title bar
+        // regardless of what public/manifest.json said.
         manifest: {
-          name: 'Blinko',
-          short_name: 'Blinko',
+          name: 'Journal',
+          short_name: 'Journal',
+          description: 'A private, self-hosted personal journal',
           icons: [
             {
-              src: './icons/Square30x30Logo.png',
-              sizes: '30x30',
+              src: './icons/icon-192.png',
+              sizes: '192x192',
               type: 'image/png'
             },
             {
-              src: './icons/Square44x44Logo.png',
-              sizes: '44x44',
+              src: './icons/icon-512.png',
+              sizes: '512x512',
               type: 'image/png'
             },
             {
-              src: './icons/Square71x71Logo.png',
-              sizes: '71x71',
-              type: 'image/png'
-            },
-            {
-              src: './icons/Square89x89Logo.png',
-              sizes: '89x89',
-              type: 'image/png'
-            },
-            {
-              src: './icons/Square107x107Logo.png',
-              sizes: '107x107',
-              type: 'image/png'
-            },
-            {
-              src: './icons/Square142x142Logo.png',
-              sizes: '142x142',
-              type: 'image/png'
-            },
-            {
-              src: './icons/Square150x150Logo.png',
-              sizes: '150x150',
-              type: 'image/png'
-            },
-            {
-              src: './icons/Square284x284Logo.png',
-              sizes: '284x284',
-              type: 'image/png'
-            },
-            {
-              src: './icons/Square310x310Logo.png',
-              sizes: '310x310',
+              src: './icons/icon-512-maskable.png',
+              sizes: '512x512',
               type: 'image/png',
-              purpose: 'any maskable'
+              purpose: 'maskable'
             }
           ],
-          theme_color: '#FFFFFF',
-          background_color: '#FFFFFF',
+          theme_color: '#15072B',
+          background_color: '#15072B',
           start_url: './',
           display: 'standalone',
           orientation: 'portrait'

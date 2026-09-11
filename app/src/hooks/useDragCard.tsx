@@ -25,28 +25,45 @@ export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, inser
   const isDraggingRef = useRef(false);
   const blinko = RootStore.Get(BlinkoStore);
 
+  // CUSTOM-JOURNAL: drag-reordering is keyed off notes.sortOrder, which only
+  // reflects manual drag position -- meaningless (and actively wrong) once
+  // the user picks a real sort (oldest/longest/shortest/mood) in FilterPop,
+  // since it silently discarded whatever order the backend returned and
+  // always re-imposed drag order instead. "Newest" (date desc) is this
+  // journal's default/manual-ordering mode, so sortOrder still applies
+  // there; any other sortField/orderBy trusts the backend's order (pinned
+  // notes still float to top either way).
+  const { sortField, orderBy } = blinko.noteListFilterConfig;
+  const isCustomSort = sortField !== 'date' || orderBy !== 'desc';
+
   // Update local notes when the list changes (but not during drag operations)
   useEffect(() => {
     if (notes && !isDraggingRef.current) {
-      // Sort by isTop first (desc), then by sortOrder (asc) to maintain the correct order from the database
-      const sortedNotes = [...notes].sort((a, b) => {
-        // First, sort by isTop (pinned notes first)
-        if (a.isTop !== b.isTop) {
-          return b.isTop ? 1 : -1;
-        }
-        // Then sort by sortOrder
-        return a.sortOrder - b.sortOrder;
-      });
+      const sortedNotes = isCustomSort
+        // Custom sort active: keep the backend's order, only pin isTop notes first.
+        ? [...notes].sort((a, b) => (a.isTop === b.isTop ? 0 : (b.isTop ? 1 : -1)))
+        // Default view: sort by isTop first (desc), then by sortOrder (asc) to maintain the correct order from the database
+        : [...notes].sort((a, b) => {
+            if (a.isTop !== b.isTop) {
+              return b.isTop ? 1 : -1;
+            }
+            return a.sortOrder - b.sortOrder;
+          });
       setLocalNotes(sortedNotes);
       onNotesUpdate?.(sortedNotes);
     }
     else if (!notes) {
       setLocalNotes([]);
     }
-  }, [notes]);
+  }, [notes, isCustomSort]);
 
-  // Disable sensors when fullscreen editor is open
-  const shouldEnableDrag = blinko.fullscreenEditorNoteId === null;
+  // CUSTOM-JOURNAL: drag-to-reorder disabled entirely, per the user's
+  // preference for sort-driven ordering only (see FilterPop's Sort section)
+  // rather than a separate manual drag-order concept. Kept as a dead-but-
+  // harmless activation constraint (dnd-kit sensors that can never fire)
+  // rather than ripping out the whole DndContext/useDraggable wiring below,
+  // since that's much larger, riskier surface for the same net effect.
+  const shouldEnableDrag = false;
   
   const sensors = useSensors(
     useSensor(MouseSensor, {

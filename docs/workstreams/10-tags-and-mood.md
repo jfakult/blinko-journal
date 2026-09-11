@@ -1,5 +1,14 @@
 # Workstream 10 — Tag Chips, Filter/Sort, Mood Scoring & Tagging Audit
 
+> **Follow-up — see `docs/workstreams/11-audio-transcription-and-ai-ops.md`.**
+> §2's sort bar shipped with real bugs (Apply refetched the wrong list on
+> the normal `?path=notes` view; drag-reordering silently discarded custom
+> sort order) — both fixed there, and drag-to-reorder was then removed
+> entirely per a follow-up request (sort is now the only ordering concept).
+> That doc also covers the tag-generation concurrency-safety hardening
+> (`appendTagsIfUnchanged`) that §5's `AiService.suggestTags` call site now
+> goes through.
+
 Not part of the original `docs/PROJECT_BRIEF.md` (that document is kept verbatim
 as the original brief — see its correction notes for the pattern this repo
 uses instead of editing it). This is a later, separately-requested round of
@@ -210,6 +219,39 @@ path.
   `TagListPanel.tsx`'s header (the sidebar tag tree). No new page — this
   lives right alongside the tree it populates.
 
+## 8. Manual tag attach/detach on any entry
+
+Previously the only way to add/remove a tag on an existing entry was to
+hand-edit `#hashtag` text into its content. Tags stay **100% content-derived**
+(`syncNoteTagsFromContent`, §5) — so the fix here is a UI that manipulates the
+same `#path` hashtag in `content`, not a shortcut that writes `tagsToNote`
+rows directly (which the next content save would silently undo).
+
+- **Backend**: `tag.attachToNote`/`tag.detachFromNote`
+  (`server/routerTrpc/tag.ts`) — `{ noteId, tagPath }`, fresh-reads the
+  note's content, appends/strips the `#path` hashtag via regex, then calls
+  `syncNoteTagsFromContent`.
+- **Shared UI**: `app/src/components/Common/TagPicker/index.tsx` — chips for
+  current tags (removable) + a "+" trigger opening a HeroUI `Autocomplete`
+  (backed by `blinko.tagList.value?.pathTags`, `allowsCustomValue` so typing
+  a new path and hitting Enter creates it).
+- **Three surfaces wired to it**:
+  1. `TagList` (§1)'s note cards — pass `noteId`, calls the mutations
+     directly + `blinko.forceQuery++`.
+  2. `BlinkoRightClickMenu` — new "Add Tag" item (desktop context menu +
+     mobile dropdown) opens a dialog wrapping `TagPicker`, computing current
+     tags from `blinko.curSelectedNote?.tags`.
+  3. **The editor itself** — a "Tags" row above the toolbar, both composing
+     (`mode='create'`) and editing an existing entry. Not content-derived
+     live in the visible markdown body (that was considered and rejected as
+     too risky given the untraced vditor initial-value pipeline); instead
+     `EditorStore` holds `tags`/`initialTags` (a snapshot taken on load), and
+     `handleSend()` diffs them against `content` at send time — an added tag
+     becomes a trailing `#path` (skipped if already literally present in the
+     body), a removed tag's hashtag gets stripped out. Wired in
+     `useEditor.ts`'s create/edit-mode init and `Editor/index.tsx`'s
+     `renderTagsRow()`.
+
 ## On the DB being on a separate VM / migration safety
 
 Every schema change here is additive only (`ADD COLUMN`, one `CREATE
@@ -234,10 +276,11 @@ file is hand-maintained, not auto-generated), `server/lib/helper.ts`
 `postProcessNote` wiring), `server/jobs/tagAuditJob.ts` (new),
 `server/index.ts` (job registration), `server/routerTrpc/note.ts`
 (`sortField`/`moodAxisId`, tag-sync refactor), `server/routerTrpc/tag.ts`
-(`create`), `server/routerTrpc/analytics.ts` (`tagId` on `tagStats`),
-`server/routerTrpc/ai.ts` (`tagAudit*`, `moodAxis*`).
+(`create`, `attachToNote`/`detachFromNote`, §8), `server/routerTrpc/analytics.ts`
+(`tagId` on `tagStats`), `server/routerTrpc/ai.ts` (`tagAudit*`, `moodAxis*`).
 
 Frontend: `app/src/components/Common/TagList/index.tsx` (new),
+`app/src/components/Common/TagPicker/index.tsx` (new, §8),
 `app/src/components/Common/CreateTagPop/index.tsx` (new),
 `app/src/components/Common/TagAuditProgress/index.tsx` (new),
 `app/src/components/BlinkoSettings/AiSetting/TagAuditSection.tsx` (new),

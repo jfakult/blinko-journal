@@ -1,56 +1,27 @@
 {
   "name": "Journal",
   "short_name": "Journal",
+  "description": "A private, self-hosted personal journal",
   "icons": [
     {
-      "src": "icons/Square30x30Logo.png",
-      "sizes": "30x30",
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "icons/Square44x44Logo.png",
-      "sizes": "44x44",
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
       "type": "image/png"
     },
     {
-      "src": "icons/Square71x71Logo.png",
-      "sizes": "71x71",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/Square89x89Logo.png",
-      "sizes": "89x89",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/Square107x107Logo.png",
-      "sizes": "107x107",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/Square142x142Logo.png",
-      "sizes": "142x142",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/Square150x150Logo.png",
-      "sizes": "150x150",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/Square284x284Logo.png",
-      "sizes": "284x284",
-      "type": "image/png"
-    },
-    {
-      "src": "icons/Square310x310Logo.png",
-      "sizes": "310x310",
+      "src": "icons/icon-512-maskable.png",
+      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "maskable"
     }
   ],
-  "theme_color": "#FFFFFF",
-  "background_color": "#FFFFFF",
+  "theme_color": "#15072B",
+  "background_color": "#15072B",
   "start_url": "./",
   "display": "standalone",
   "orientation": "portrait"

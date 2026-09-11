@@ -12,7 +12,6 @@ import { BlinkoRightClickMenu } from '@/components/BlinkoRightClickMenu';
 import { useMediaQuery } from 'usehooks-ts';
 import { push as Menu } from 'react-burger-menu';
 import { eventBus } from '@/lib/event';
-import AiWritePop from '../Common/PopoverFloat/aiWritePop';
 import { Sidebar } from './Sidebar';
 import { MobileNavBar } from './MobileNavBar';
 import FilterPop from '../Common/PopoverFloat/filterPop';
@@ -87,7 +86,10 @@ export const CommonLayout = observer(({ children, header }: { children?: React.R
 
   return (
     <div className={`flex w-full h-mobile-full overflow-x-hidden`} id="outer-container">
-      <AiWritePop />
+      {/* CUSTOM-JOURNAL: AI Write (generate/expand/polish entry text) removed
+          -- goes against this journal's philosophy of entries being the
+          user's own words (voice-transcribed or typed), not AI-authored.
+          See also Editor/index.tsx's AIWriteButton removal. */}
 
       <Menu style={{
         bmMenuWrap: {

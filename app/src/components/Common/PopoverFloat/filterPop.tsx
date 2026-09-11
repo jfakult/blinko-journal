@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { RootStore } from "@/store";
 import { BlinkoStore } from "@/store/blinkoStore";
 import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { RangeCalendar } from "@heroui/react";
 import { today, getLocalTimeZone } from "@internationalized/date";
 import dayjs from "@/lib/dayjs";
@@ -17,6 +18,7 @@ const DATE_DESC = 'date:desc';
 export default function FilterPop() {
   const { t } = useTranslation();
   const blinkoStore = RootStore.Get(BlinkoStore);
+  const [searchParams] = useSearchParams();
 
   const [isOpen, setIsOpen] = useState(false);
   const [dateRange, setDateRange] = useState<{
@@ -55,6 +57,26 @@ export default function FilterPop() {
     { label: t('has-todo'), value: 'hasTodo' },
   ];
 
+  // CUSTOM-JOURNAL: FilterPop is rendered both in the header (visible on
+  // every list view) and under the new-entry box, so Apply/Reset must
+  // refetch whichever list is actually on screen -- resolved the same way
+  // blinkoStore.useQuery()/refreshData() and index.tsx's currentListState
+  // do, from the current ?path=. This used to unconditionally call
+  // noteList.resetAndCall() (the ?path=all list); since the normal journal
+  // view is ?path=notes (noteOnlyList, a *different* PromisePageState),
+  // Apply silently refetched a list nobody was looking at and looked like
+  // "sorting doesn't work."
+  const getActiveList = () => {
+    switch (searchParams.get('path')) {
+      case 'notes': return blinkoStore.noteOnlyList;
+      case 'todo': return blinkoStore.todoList;
+      case 'all': return blinkoStore.noteList;
+      case 'archived': return blinkoStore.archivedList;
+      case 'trash': return blinkoStore.trashList;
+      default: return blinkoStore.noteOnlyList;
+    }
+  };
+
   const parseSortValue = (value: string) => {
     const [field, direction, axisId] = value.split(':');
     return {
@@ -78,7 +100,7 @@ export default function FilterPop() {
       isArchived: null,
       ...parseSortValue(sortValue)
     };
-    blinkoStore.noteList.resetAndCall({});
+    getActiveList().resetAndCall({});
     setIsOpen(false);
   };
 
@@ -102,7 +124,7 @@ export default function FilterPop() {
       hasTodo: false,
       ...parseSortValue(DATE_DESC)
     };
-    blinkoStore.noteList.resetAndCall({});
+    getActiveList().resetAndCall({});
     setIsOpen(false);
   };
 
@@ -160,7 +182,10 @@ export default function FilterPop() {
             </div>
             <Select
               value={tagStatus}
-              onChange={(e) => setTagStatus(e.target.value)}
+              onChange={(e) => {
+                setTagStatus(e.target.value);
+                if (e.target.value === 'without') setSelectedTag(null);
+              }}
               className="w-full"
               defaultSelectedKeys={['all']}
               classNames={{
@@ -205,17 +230,42 @@ export default function FilterPop() {
             </Select>
           </div>
 
-          {tagStatus === "with" && (
+          {/* CUSTOM-JOURNAL: always-visible autocompleting tag search, not
+              gated behind picking "With Tags" first -- picking a tag here
+              implies "with this tag" on its own (Apply reads selectedTag
+              independently of tagStatus), so the extra click was pure
+              friction. Hidden only for "Without Tags", where searching a
+              specific tag would be a contradictory combination. */}
+          {tagStatus !== "without" && (
             <div className="flex flex-col gap-2">
               <div className="text-sm font-medium flex items-center gap-2">
                 <Icon icon="solar:tags-bold" width="20" height="20" />
-                {t('select-tags')}
+                {t('filter-by-tag')}
               </div>
-              
-              <TagSelector
-                selectedTag={selectedTag}
-                onSelectionChange={(key) => setSelectedTag(key)}
-              />
+
+              <div className="flex items-center gap-2">
+                <TagSelector
+                  selectedTag={selectedTag}
+                  onSelectionChange={(key) => {
+                    setSelectedTag(key || null);
+                    if (key) setTagStatus('with');
+                  }}
+                  className="flex-1"
+                />
+                {selectedTag && (
+                  <Button
+                    isIconOnly
+                    size="sm"
+                    variant="light"
+                    onPress={() => {
+                      setSelectedTag(null);
+                      if (tagStatus === 'with') setTagStatus('all');
+                    }}
+                  >
+                    <Icon icon="mingcute:close-line" width="18" height="18" />
+                  </Button>
+                )}
+              </div>
             </div>
           )}
 
@@ -264,7 +314,7 @@ export default function FilterPop() {
               className="flex-1"
               startContent={<Icon icon="solar:filter-bold" width="20" height="20" />}
             >
-              {t('apply-filter')}
+              {t('apply')}
             </Button>
             <Button
               variant="flat"

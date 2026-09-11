@@ -108,8 +108,17 @@ const Home = observer(() => {
     get showEditor() {
       return !blinko.noteListFilterConfig.isArchived && !blinko.noteListFilterConfig.isRecycle
     },
+    // CUSTOM-JOURNAL: currentListState.isLoadAll flips true as soon as the
+    // store's `value` array updates, but the cards actually on screen come
+    // from useDragCard's `localNotes`, which syncs one render behind (via a
+    // useEffect keyed on `notes`) -- so without this check, "all N entries
+    // loaded" briefly renders before the cards themselves do. Only show it
+    // once localNotes has actually caught up to the fetched value.
     get showLoadAll() {
-      return currentListState.isLoadAll
+      return currentListState.isLoadAll && localNotes.length === (currentListState.value?.length ?? 0)
+    },
+    get isSyncingList() {
+      return currentListState.isLoadAll && localNotes.length !== (currentListState.value?.length ?? 0)
     }
   }))
 
@@ -264,6 +273,11 @@ const Home = observer(() => {
             </>
           )}
 
+          {store.isSyncingList && (
+            <div className='w-full flex justify-center py-4'>
+              <Icon icon="line-md:loading-twotone-loop" width="24" height="24" className="text-default-400" />
+            </div>
+          )}
           {store.showLoadAll && <div className='select-none w-full text-center text-sm font-bold text-ignore my-4'>{t('all-notes-have-been-loaded', { items: currentListState.value?.length })}</div>}
         </ScrollArea>
       }

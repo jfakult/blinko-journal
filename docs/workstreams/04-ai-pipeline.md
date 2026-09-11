@@ -10,6 +10,14 @@
 > audit/backfill job and `AiService.postProcessNote`'s exact tag-generation
 > code path referenced below were also refactored — see workstream 10 for
 > current file:line references.
+>
+> **Also see `docs/workstreams/11-audio-transcription-and-ai-ops.md`.** The
+> "fires after transcription completes" note just below is now more precise:
+> tagging is explicitly *gated* on `hasPendingAudioTranscription` first (not
+> just sequenced after it fires), transcription now also runs on note
+> *update* (not just create), and both the tag-append write and the
+> transcript-append write were hardened with compare-and-swap so a
+> concurrent user edit can no longer be silently overwritten by either.
 
 Scope per the corrected brief (see `docs/PROJECT_BRIEF.md` and
 `docs/workstreams/00-multi-user-model.md`): single account, single Ollama

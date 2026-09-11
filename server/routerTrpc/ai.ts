@@ -14,6 +14,34 @@ import { aiProviders, aiModels } from '@shared/lib/prismaZodType';
 import { fetchWithProxy } from '@server/lib/proxy';
 import { inferModelCapabilities } from '@shared/lib/modelTemplates';
 
+// CUSTOM-JOURNAL: minimal valid WAV file (44-byte header + 0.1s of silence)
+// for testConnect's audio-capability check below -- a real network round
+// trip through the configured provider without requiring the user to supply
+// an audio sample just to click "Test".
+function buildSilentWavBuffer(): Buffer {
+  const sampleRate = 8000;
+  const numSamples = 800; // 0.1s
+  const bytesPerSample = 2;
+  const dataSize = numSamples * bytesPerSample;
+  const buffer = Buffer.alloc(44 + dataSize); // PCM data stays zeroed (silence)
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16); // fmt chunk size
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(1, 22); // mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * bytesPerSample, 28); // byte rate
+  buffer.writeUInt16LE(bytesPerSample, 32); // block align
+  buffer.writeUInt16LE(16, 34); // bits per sample
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  return buffer;
+}
+
 export const aiRouter = router({
   embeddingUpsert: authProcedure
     .input(z.object({
@@ -448,9 +476,42 @@ export const aiRouter = router({
           }
         }
 
-        // Test audio capability (speech recognition)
+        // CUSTOM-JOURNAL: upstream Blinko just threw "audio cannot test" here
+        // unconditionally, which failed the *entire* testConnect mutation
+        // (500, no per-capability detail) any time audio was one of the
+        // capabilities being tested -- exactly the "Connection test failed:
+        // audio cannot test" the user hit clicking Test on the whisper
+        // model. Actually exercise the provider instead, the same way
+        // inference/embedding do above: build the real audio model and feed
+        // it a tiny silent WAV so the call round-trips through auth/baseURL.
+        // We only care that the API call succeeds, not what whisper
+        // transcribes from silence (likely empty) -- same "did the round
+        // trip work" bar the other capability tests use.
         if (capabilities.audio) {
-          throw new Error("audio cannot test")
+          try {
+            const { AudioProvider } = await import('@server/aiServer/providers');
+            const audioProvider = new AudioProvider();
+            const audioModel = await audioProvider.getAudioModel({
+              provider: provider.provider,
+              apiKey: provider.apiKey,
+              baseURL: provider.baseURL,
+              modelKey,
+              apiVersion: (provider.config as any)?.apiVersion
+            });
+
+            if (!audioModel) {
+              throw new Error('Audio model could not be initialized for this provider');
+            }
+
+            const { Readable } = await import('stream');
+            const transcription = await audioModel.listen(Readable.from(buildSilentWavBuffer()), { filetype: 'wav' });
+            testResults.audio = {
+              success: true,
+              response: transcription?.toString()?.trim() || '(empty transcription from silence -- connection OK)'
+            };
+          } catch (error) {
+            testResults.audio = { success: false, error: error.message };
+          }
         }
 
         const overallSuccess = Object.values(testResults).some((result: any) => result.success);

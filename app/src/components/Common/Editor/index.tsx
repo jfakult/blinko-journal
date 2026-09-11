@@ -28,7 +28,6 @@ import {
   useEditorHeight
 } from './hooks/useEditor';
 import { EditorStore } from "./editorStore";
-import { AIWriteButton } from "./Toolbar/AIWriteButton";
 import { FullScreenButton } from "./Toolbar/FullScreenButton";
 import { eventBus } from "@/lib/event";
 import { PluginApiStore } from "@/store/plugin/pluginApiStore";
@@ -89,9 +88,10 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
           <PersonalizeButton store={store} />
           <ReferenceButton store={store} />
           <ResourceReferenceButton store={store} />
-          {blinko.config.value?.mainModelId && (
-            <AIWriteButton />
-          )}
+          {/* CUSTOM-JOURNAL: AI Write (generate/expand/polish entry text)
+              removed -- goes against this journal's philosophy of entries
+              being the user's own words (voice-transcribed or typed), not
+              AI-authored. See also Layout/index.tsx's AiWritePop removal. */}
           <UploadButtons
             getInputProps={getInputProps}
             open={open}
