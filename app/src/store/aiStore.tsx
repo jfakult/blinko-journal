@@ -255,25 +255,6 @@ export class AiStore implements Store {
     this.onInputSubmit();
   };
 
-  newRoleChat = async (prompt: string) => {
-    this.isChatting = true;
-
-    if (this.currentConversationId == 0) {
-      const conversation = await api.conversation.create.mutate({ title: '' });
-      this.currentConversationId = conversation.id;
-    }
-
-    if (this.currentConversationId != 0) {
-      await api.message.create.mutate({
-        conversationId: this.currentConversationId,
-        content: prompt,
-        role: 'system',
-        metadata: ""
-      });
-      await this.currentConversation.call();
-    }
-  };
-
   scrollTicker = 0;
   chatHistory = new StorageListState<Chat>({ key: 'chatHistory' });
   private aiChatabortController = new AbortController();

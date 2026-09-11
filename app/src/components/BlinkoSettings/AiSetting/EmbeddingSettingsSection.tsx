@@ -21,7 +21,11 @@ export const EmbeddingSettingsSection = observer(function EmbeddingSettingsSecti
 
   const [localState, setLocalState] = useState({
     embeddingTopK: blinko.config.value?.embeddingTopK ?? 5,
-    embeddingScore: blinko.config.value?.embeddingScore ?? 0.6,
+    // CUSTOM-JOURNAL: kept in sync with aiModelFactory.ts's queryVector
+    // default -- a personal journal's small, varied corpus favors recall
+    // (missing the one relevant entry) over precision (an unrelated one
+    // slipping in), so this defaults lower than upstream's 0.6.
+    embeddingScore: blinko.config.value?.embeddingScore ?? 0.3,
     excludeEmbeddingTagId: blinko.config.value?.excludeEmbeddingTagId
   });
 

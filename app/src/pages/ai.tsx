@@ -1,7 +1,6 @@
 import { Button } from '@heroui/react';
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useMemo } from 'react';
 import { AiInput } from '@/components/BlinkoAi/aiInput';
-import { Icon } from '@/components/Common/Iconify/icons';
 import { useMediaQuery } from 'usehooks-ts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AiStore } from '@/store/aiStore';
@@ -43,27 +42,6 @@ const AIPage = observer(() => {
     };
   }, []);
 
-  const buttons = [
-    {
-      label: t('recall'),
-      icon: 'solar:clock-circle-bold',
-      color: '#0057FF',
-      prompt: t('ai-prompt-recall')
-    },
-    {
-      label: t('search-past-entries'),
-      icon: 'hugeicons:search-list-01',
-      color: '#FF9500',
-      prompt: t('ai-prompt-search')
-    },
-    {
-      label: t('trend-analysis'),
-      icon: 'hugeicons:analytics-01',
-      color: '#2FBC52',
-      prompt: t('ai-prompt-trends')
-    }
-  ];
-
   const suggestionActions = [
     {
       prompt: t('ai-prompt-suggestion-mood')
@@ -78,6 +56,31 @@ const AIPage = observer(() => {
       prompt: t('ai-prompt-suggestion-archive-summary')
     }
   ]
+
+  // CUSTOM-JOURNAL: replaces the old fixed Recall/Search/Trends button row --
+  // those three prompts are folded into this pool alongside new ones focused
+  // on moments/places/memories, and every load shows 3 picked at random so
+  // the entry point into RAG-backed chat stays discoverable without needing
+  // a taxonomy of buttons. useMemo with no deps keeps the pick stable across
+  // re-renders of this mount (a fresh pick happens on the next page visit).
+  const hintPromptKeys = [
+    'ai-prompt-recall',
+    'ai-prompt-search',
+    'ai-prompt-trends',
+    'ai-prompt-suggestion-mood',
+    'ai-prompt-suggestion-find-person',
+    'ai-prompt-suggestion-archive-summary',
+    'ai-prompt-hint-europe',
+    'ai-prompt-hint-laugh',
+    'ai-prompt-hint-place-love',
+    'ai-prompt-hint-recent-moment',
+    'ai-prompt-hint-surprising',
+    'ai-prompt-hint-forgotten',
+  ];
+  const hintPrompts = useMemo(() => {
+    return [...hintPromptKeys].sort(() => Math.random() - 0.5).slice(0, 3);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div
@@ -129,11 +132,13 @@ const AIPage = observer(() => {
           aiStore.isChatting ? "absolute bottom-2" : "mt-4"
         )}
       >
+        <AiInput className={aiStore.isChatting ? 'mt-0' : 'mt-2'} />
+
         <AnimatePresence>
           {!aiStore.isChatting && (
             <motion.div
-              className="w-full md:w-[85%] flex items-center gap-2 mt-4 overflow-x-scroll scrollbar-hide my-3"
-              initial={{ y: 0, opacity: 1 }}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
               exit={{
                 y: 150,
                 opacity: 0,
@@ -143,28 +148,26 @@ const AIPage = observer(() => {
                   stiffness: 100
                 }
               }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+              className='flex gap-2 mt-4 flex-wrap justify-center px-4'
             >
-              <div className="flex gap-2 px-4 w-full items-center justify-center">
-                {buttons.map((button, index) => (
-                  <Button
-                    onPress={() => {
-                      aiStore.newRoleChat(button.prompt)
-                    }}
-                    className='w-fit'
-                    key={index}
-                    variant='light'
-                    startContent={<Icon className='min-w-[20px]' icon={button.icon} color={button.color} width="20" height="20" />}
-                  >
-                    {button.label}
-                  </Button>
-                ))}
-                <Button isIconOnly variant='light' startContent={<Icon icon="icon-park-outline:more" className='min-w-[20px]' width="20" height="20" />} />
-              </div>
+              {hintPrompts.map((key) => (
+                <Button
+                  size={isPc ? 'md' : 'sm'}
+                  onPress={() => {
+                    aiStore.newChatWithSuggestion(t(key))
+                  }}
+                  className='w-fit'
+                  key={key}
+                  radius='full'
+                  variant='flat'
+                >
+                  {t(key)}
+                </Button>
+              ))}
             </motion.div>
           )}
         </AnimatePresence>
-
-        <AiInput className={aiStore.isChatting ? 'mt-0' : 'mt-2'} />
 
         <AnimatePresence>
           {RootStore.Get(AiStore).withTools.value && !aiStore.isChatting && (

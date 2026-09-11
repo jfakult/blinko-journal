@@ -26,6 +26,8 @@ import { useMediaQuery } from "usehooks-ts";
 import { FocusEditorFixMobile } from "@/components/Common/Editor/editorUtils";
 import { helper } from "@/lib/helper";
 import { TagPicker } from "@/components/Common/TagPicker";
+import { SentimentView } from "@/components/Common/SentimentView";
+import { moodAxis } from "@shared/lib/prismaZodType";
 
 
 export const ShowEditTimeModel = (showExpired: boolean = false) => {
@@ -327,6 +329,35 @@ const handleAddTag = () => {
   })
 }
 
+// CUSTOM-JOURNAL: "View Sentiments" dialog -- shows the mood-axis scores the
+// post-processing pipeline (AiModelFactory.MoodAgent, see aiServer/index.ts's
+// scoreMood) already generated for this note, if any. Fetches the axis
+// definitions (label text, bipolar vs unipolar) fresh each open since they
+// can be edited/added in AI Settings at any time.
+const ViewSentimentsDialogContent = observer(() => {
+  const blinko = RootStore.Get(BlinkoStore)
+  const note = blinko.curSelectedNote
+  const [axes, setAxes] = useState<moodAxis[] | null>(null)
+
+  useEffect(() => {
+    api.ai.moodAxisList.query().then(setAxes).catch(() => setAxes([]))
+  }, [])
+
+  if (!axes) {
+    return <div className="flex justify-center py-6"><Icon icon="line-md:loading-twotone-loop" width="24" height="24" /></div>
+  }
+
+  return <SentimentView axes={axes} moodScores={note?.moodScores as Record<string, number> | null | undefined} />
+})
+
+const handleViewSentiments = () => {
+  RootStore.Get(DialogStore).setData({
+    isOpen: true,
+    title: i18n.t('view-sentiments'),
+    content: <ViewSentimentsDialogContent />
+  })
+}
+
 const handleTrash = () => {
   const blinko = RootStore.Get(BlinkoStore)
   PromiseCall(api.notes.trashMany.mutate({ ids: [blinko.curSelectedNote?.id!] }))
@@ -454,6 +485,16 @@ export const AddTagItem = observer(() => {
   );
 });
 
+export const ViewSentimentsItem = observer(() => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-start gap-2">
+      <Icon icon="mdi:emoticon-outline" width="20" height="20" />
+      <div>{t('view-sentiments')}</div>
+    </div>
+  );
+});
+
 export const RelatedNotesItem = observer(() => {
   const { t } = useTranslation();
   return (
@@ -564,6 +605,12 @@ export const BlinkoRightClickMenu = observer(() => {
       </ContextMenuItem>
     ) : <></>}
 
+    {blinko.config.value?.mainModelId ? (
+      <ContextMenuItem onClick={handleViewSentiments}>
+        <ViewSentimentsItem />
+      </ContextMenuItem>
+    ) : <></>}
+
     {pluginApi.customRightClickMenus.map((menu) => (
       <ContextMenuItem key={menu.name} onClick={() => menu.onClick(blinko.curSelectedNote!)} disabled={menu.disabled}>
         <div className="flex items-start gap-2">
@@ -649,6 +696,12 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
       {blinko.config.value?.mainModelId ? (
         <DropdownItem key="RelatedNotesItem" onPress={handleRelatedNotes}>
           <RelatedNotesItem />
+        </DropdownItem>
+      ) : <></>}
+
+      {blinko.config.value?.mainModelId ? (
+        <DropdownItem key="ViewSentimentsItem" onPress={handleViewSentiments}>
+          <ViewSentimentsItem />
         </DropdownItem>
       ) : <></>}
 

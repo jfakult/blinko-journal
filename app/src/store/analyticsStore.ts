@@ -20,6 +20,11 @@ interface MonthlyStats {
     locationName: string;
     count: number;
   }[];
+  moodStats?: {
+    axes: { id: number; positiveLabel: string; negativeLabel: string | null }[];
+    days: string[];
+    series: Record<string, (number | null)[]>;
+  };
 }
 
 export class AnalyticsStore implements Store {

@@ -102,8 +102,17 @@ export class AiService {
         AiModelFactory.queryAndDeleteVectorById(id);
       }
 
+      // CUSTOM-JOURNAL: previously appended raw "Create At: <iso> Update At:
+      // <iso>" text directly onto every embedded chunk. For a short journal
+      // entry that timestamp noise can be a large fraction of the embedded
+      // text and measurably drags the resulting vector away from the note's
+      // actual semantic content -- createTime/updatedAt are already carried
+      // separately in the vector's metadata below, so there's no need to
+      // embed them too. See queryVector's prefix comment for the other half
+      // of this retrieval-quality fix.
+      const modelKey = await AiModelFactory.getEmbeddingModelKey();
       const { embeddings } = await embedMany({
-        values: chunks.map((chunk) => chunk.text + 'Create At: ' + createTime.toISOString() + ' Update At: ' + updatedAt?.toISOString()),
+        values: chunks.map((chunk) => AiModelFactory.applyEmbeddingPrefix(chunk.text, modelKey, 'document')),
         model: Embeddings,
       });
 
@@ -161,8 +170,9 @@ export class AiService {
       const doc = MDocument.fromText(content);
       const chunks = await doc.chunk();
 
+      const modelKey = await AiModelFactory.getEmbeddingModelKey();
       const { embeddings } = await embedMany({
-        values: chunks.map((chunk) => chunk.text + 'Create At: ' + updatedAt?.toISOString() + ' Update At: ' + updatedAt?.toISOString()),
+        values: chunks.map((chunk) => AiModelFactory.applyEmbeddingPrefix(chunk.text, modelKey, 'document')),
         model: Embeddings,
       });
 

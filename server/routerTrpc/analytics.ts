@@ -56,7 +56,22 @@ export const analyticsRouter = router({
       locationStats: z.array(z.object({
         locationName: z.string(),
         count: z.number()
-      })).optional()
+      })).optional(),
+      // CUSTOM-JOURNAL: per-day average score (0-100) for every active
+      // moodAxis, over days in the selected month that have at least one
+      // AI-scored note. `series` is keyed by moodAxis.id (as a string,
+      // matching notes.moodScores) to an array aligned 1:1 with `days`; a
+      // null entry means no scored note that day (kept, rather than
+      // dropped, so the frontend line chart shows a real gap).
+      moodStats: z.object({
+        axes: z.array(z.object({
+          id: z.number(),
+          positiveLabel: z.string(),
+          negativeLabel: z.string().nullable()
+        })),
+        days: z.array(z.string()),
+        series: z.record(z.string(), z.array(z.number().nullable()))
+      }).optional()
     }))
     .mutation(async function ({ ctx, input }) {
       const startDate = dayjs(input.month).startOf('month').toDate()
@@ -171,13 +186,64 @@ export const analyticsRouter = router({
         })
       }
 
+      // CUSTOM-JOURNAL: mood trend -- average each moodAxis's score per day,
+      // over days in the month that have at least one scored note. Done in
+      // JS rather than SQL since moodScores is a JSONB blob keyed dynamically
+      // by axis id (a per-axis raw-SQL aggregate would need one expression
+      // per axis, rebuilt whenever axes are added/removed in AI Settings).
+      const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } })
+      let moodStats: { axes: { id: number; positiveLabel: string; negativeLabel: string | null }[]; days: string[]; series: Record<string, (number | null)[]> } | undefined
+
+      if (axes.length > 0) {
+        const notesWithMood = await prisma.notes.findMany({
+          where: {
+            accountId: parseInt(ctx.id),
+            createdAt: { gte: startDate, lte: endDate }
+          },
+          select: { createdAt: true, moodScores: true }
+        })
+
+        const byDay = new Map<string, { sums: Record<number, number>; counts: Record<number, number> }>()
+        for (const note of notesWithMood) {
+          if (!note.moodScores || typeof note.moodScores !== 'object') continue
+          const day = dayjs(note.createdAt).format('YYYY-MM-DD')
+          if (!byDay.has(day)) byDay.set(day, { sums: {}, counts: {} })
+          const entry = byDay.get(day)!
+          for (const axis of axes) {
+            const val = (note.moodScores as Record<string, unknown>)[String(axis.id)]
+            if (typeof val === 'number') {
+              entry.sums[axis.id] = (entry.sums[axis.id] ?? 0) + val
+              entry.counts[axis.id] = (entry.counts[axis.id] ?? 0) + 1
+            }
+          }
+        }
+
+        const days = Array.from(byDay.keys()).sort()
+        if (days.length > 0) {
+          const series: Record<string, (number | null)[]> = {}
+          for (const axis of axes) {
+            series[String(axis.id)] = days.map(day => {
+              const entry = byDay.get(day)!
+              const count = entry.counts[axis.id]
+              return count ? Math.round((entry.sums[axis.id] / count) * 10) / 10 : null
+            })
+          }
+          moodStats = {
+            axes: axes.map(a => ({ id: a.id, positiveLabel: a.positiveLabel, negativeLabel: a.negativeLabel ?? null })),
+            days,
+            series
+          }
+        }
+      }
+
       return {
         noteCount,
         totalWords,
         maxDailyWords,
         activeDays,
         tagStats: finalTagStats,
-        locationStats: finalLocationStats
+        locationStats: finalLocationStats,
+        moodStats
       }
     })
 })

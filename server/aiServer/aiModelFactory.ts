@@ -62,16 +62,43 @@ export class AiModelFactory {
     }
   }
 
+  // CUSTOM-JOURNAL: nomic-embed-text (this journal's seeded/default embedding
+  // model) is trained on task-prefixed pairs and needs "search_query: " /
+  // "search_document: " prefixes to produce well-separated cosine scores --
+  // without them, a short conversational question and a longer journal entry
+  // about the same thing routinely score well under a 0.4-0.6 threshold even
+  // when they're a real match. See
+  // https://huggingface.co/nomic-ai/nomic-embed-text-v1.5#usage
+  static async getEmbeddingModelKey(): Promise<string | null> {
+    const globalConfig = await AiModelFactory.globalConfig();
+    if (!globalConfig.embeddingModelId) return null;
+    const embeddingModel = await AiModelFactory.getAiModel(globalConfig.embeddingModelId);
+    return embeddingModel?.modelKey ?? null;
+  }
+
+  static applyEmbeddingPrefix(text: string, modelKey: string | null, task: 'query' | 'document'): string {
+    if (modelKey?.includes('nomic-embed-text')) {
+      return `${task === 'query' ? 'search_query' : 'search_document'}: ${text}`;
+    }
+    return text;
+  }
+
   static async queryVector(query: string, accountId: number, _topK?: number) {
     const { VectorStore, Embeddings } = await AiModelFactory.GetProvider();
     if (!Embeddings) {
       throw new Error("No embeddings model config")
     }
     const config = await AiModelFactory.globalConfig();
-    const topK = _topK ?? config.embeddingTopK ?? 3;
-    const embeddingMinScore = config.embeddingScore ?? 0.4;
+    const topK = _topK ?? config.embeddingTopK ?? 5;
+    // CUSTOM-JOURNAL: a personal journal has far fewer, more varied notes
+    // than a typical RAG corpus -- missing the one relevant entry is a much
+    // worse outcome than the model occasionally seeing an unrelated one, so
+    // this defaults lower (more inclusive) than the 0.6 that made sense
+    // upstream. Keep in sync with EmbeddingSettingsSection.tsx's UI default.
+    const embeddingMinScore = config.embeddingScore ?? 0.3;
+    const modelKey = await AiModelFactory.getEmbeddingModelKey();
     const { embedding } = await embed({
-      value: query,
+      value: AiModelFactory.applyEmbeddingPrefix(query, modelKey, 'query'),
       model: Embeddings,
     });
 
@@ -417,7 +444,14 @@ export class AiModelFactory {
       "Always respond in the user's language.\n" +
       'Maintain a friendly and professional conversational tone.';
 
-    const baseInstructions = `Today is ${dayjs().format('YYYY-MM-DD HH:mm:ss')}\n` + globalConfig.globalPrompt || defaultInstructions;
+    // CUSTOM-JOURNAL: was `a + b || c` -- string concat binds tighter than ||,
+    // so the "Today is ..." prefix made the left side truthy unconditionally
+    // and defaultInstructions could never actually be used, even with no
+    // globalPrompt configured (globalConfig.globalPrompt undefined produced
+    // the literal text "...undefined" as the chat agent's entire persona).
+    const baseInstructions = globalConfig.globalPrompt
+      ? `Today is ${dayjs().format('YYYY-MM-DD HH:mm:ss')}\n${globalConfig.globalPrompt}`
+      : defaultInstructions;
     const instructions = extraInstructions ? `${baseInstructions}\n\n${extraInstructions}` : baseInstructions;
 
     const BlinkoAgent = new Agent({
