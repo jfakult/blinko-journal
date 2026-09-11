@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { prisma } from '@server/prisma';
 import { userCaller } from './_app';
 import { tagSchema } from '@shared/lib/prismaZodType';
+import { syncNoteTagsFromContent } from '@server/lib/helper';
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export const tagRouter = router({
   list: authProcedure
@@ -44,6 +47,55 @@ export const tagRouter = router({
       return await prisma.tag.create({
         data: { name, icon: icon ?? '', parent: parent ?? 0, accountId }
       })
+    }),
+
+  // CUSTOM-JOURNAL: manually attach/detach a tag on one note (the "+tag" chip
+  // on cards, the right-click "Add tag" menu item, and the editor's Tags
+  // row all go through these) -- tags are still 100% content-derived (see
+  // syncNoteTagsFromContent), so these just append/strip the "#path" token
+  // on the note's content directly, the same convention AI tagging already
+  // uses, rather than writing tagsToNote rows by hand (which the next content
+  // save would just undo, since content is the source of truth).
+  attachToNote: authProcedure
+    .meta({ openapi: { method: 'POST', path: '/v1/tags/attach-to-note', summary: 'Attach a tag to a note', protect: true, tags: ['Tag'] } })
+    .input(z.object({
+      noteId: z.number(),
+      tagPath: z.string().min(1),
+    }))
+    .mutation(async function ({ input, ctx }) {
+      const accountId = Number(ctx.id)
+      const note = await prisma.notes.findUnique({ where: { id: input.noteId, accountId }, select: { content: true } })
+      if (!note) throw new Error('Note not found')
+
+      const hashtag = `#${input.tagPath}`
+      const alreadyPresent = new RegExp(`(?:^|\\s)${escapeRegExp(hashtag)}(?:\\s|$)`).test(note.content)
+      const newContent = alreadyPresent ? note.content : `${note.content}\n${hashtag}`
+      if (!alreadyPresent) {
+        await prisma.notes.update({ where: { id: input.noteId }, data: { content: newContent } })
+      }
+      await syncNoteTagsFromContent(input.noteId, accountId, newContent)
+      return { success: true }
+    }),
+
+  detachFromNote: authProcedure
+    .meta({ openapi: { method: 'POST', path: '/v1/tags/detach-from-note', summary: 'Detach a tag from a note', protect: true, tags: ['Tag'] } })
+    .input(z.object({
+      noteId: z.number(),
+      tagPath: z.string().min(1),
+    }))
+    .mutation(async function ({ input, ctx }) {
+      const accountId = Number(ctx.id)
+      const note = await prisma.notes.findUnique({ where: { id: input.noteId, accountId }, select: { content: true } })
+      if (!note) throw new Error('Note not found')
+
+      const hashtag = `#${input.tagPath}`
+      const newContent = note.content
+        .replace(new RegExp(`(?:^|\\s)${escapeRegExp(hashtag)}(?=\\s|$)`, 'g'), '')
+        .replace(/[ \t]+\n/g, '\n')
+        .trim()
+      await prisma.notes.update({ where: { id: input.noteId }, data: { content: newContent } })
+      await syncNoteTagsFromContent(input.noteId, accountId, newContent)
+      return { success: true }
     }),
 
   fullTagNameById: authProcedure

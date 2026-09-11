@@ -17,7 +17,7 @@ export const CardFooter = ({ blinkoItem, blinko, isShareMode }: CardFooterProps)
   const { t } = useTranslation();
   return (
     <div className="flex items-center gap-2">
-      <TagList tags={blinkoItem.tags as any} createdAt={blinkoItem.createdAt} updatedAt={blinkoItem.updatedAt} className="flex-1 min-w-0" />
+      <TagList noteId={isShareMode ? undefined : Number(blinkoItem.id)} tags={blinkoItem.tags as any} createdAt={blinkoItem.createdAt} updatedAt={blinkoItem.updatedAt} className="flex-1 min-w-0" />
       <RightContent blinkoItem={blinkoItem} t={t} />
     </div>
   );

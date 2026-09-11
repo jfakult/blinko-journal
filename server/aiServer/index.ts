@@ -708,4 +708,58 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       return { success: false, transcriptions: [] };
     }
   }
+
+  // CUSTOM-JOURNAL: true if this note has an audio attachment whose
+  // transcript hasn't been appended yet. Used to gate AI tagging/mood
+  // scoring -- many entries are voice-only, so tagging before the transcript
+  // exists would tag empty/near-empty content.
+  static async hasPendingAudioTranscription(noteId: number): Promise<boolean> {
+    const attachments = await prisma.attachments.findMany({ where: { noteId, transcribedAt: null } });
+    return attachments.some((a) => AiService.isAudio(a.name || a.path));
+  }
+
+  // CUSTOM-JOURNAL: transcribes every not-yet-transcribed audio attachment on
+  // a note and appends each transcript under its own "## Audio Transcription"
+  // heading. Re-reads content immediately before writing (not a stale
+  // in-memory snapshot) so a concurrent text edit isn't clobbered. Shared by
+  // note.ts's create/update paths and tagAuditJob.ts's backfill pass.
+  static async transcribeAndAppend({ noteId, accountId }: { noteId: number; accountId: number }): Promise<{ transcribedAny: boolean }> {
+    const config = await AiModelFactory.globalConfig();
+    if (!config.voiceModelId) return { transcribedAny: false };
+
+    const pendingAttachments = (await prisma.attachments.findMany({ where: { noteId, transcribedAt: null } }))
+      .filter((a) => AiService.isAudio(a.name || a.path));
+    if (pendingAttachments.length === 0) return { transcribedAny: false };
+
+    const { success, transcriptions } = await AiService.processNoteAudioAttachments({
+      attachments: pendingAttachments,
+      voiceModelId: config.voiceModelId,
+      accountId,
+    });
+
+    // Mark every attempted attachment as processed regardless of per-file
+    // success, so a single bad audio file can't permanently block tagging
+    // (and doesn't get retried forever by the nightly tag audit).
+    await prisma.attachments.updateMany({
+      where: { id: { in: pendingAttachments.map((a) => a.id) } },
+      data: { transcribedAt: new Date() },
+    });
+
+    if (!success || transcriptions.length === 0) return { transcribedAny: false };
+
+    const current = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, createdAt: true } });
+    if (!current) return { transcribedAny: false };
+
+    const heading = transcriptions.length > 1 ? (i: number) => `Audio Transcription ${i + 1}` : () => 'Audio Transcription';
+    const appended = transcriptions.map((t, i) => `\n\n## ${heading(i)}\n${t.transcription}`).join('');
+    const newContent = current.content + appended;
+
+    await prisma.notes.update({ where: { id: noteId }, data: { content: newContent } });
+
+    if (config.embeddingModelId) {
+      AiService.embeddingUpsert({ id: noteId, content: newContent, type: 'update', createTime: current.createdAt, updatedAt: new Date() });
+    }
+
+    return { transcribedAny: true };
+  }
 }

@@ -21,6 +21,8 @@ import axiosInstance from '@/lib/axios';
 import { playFinishChime } from '@/lib/sound';
 import { uploadImageFile } from '@/lib/uploadImageFile';
 
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export class EditorStore {
   files: FileType[] = []
   lastRange: Range | null = null
@@ -60,6 +62,25 @@ export class EditorStore {
   noteType!: NoteType;
   currentTagLabel: string = ''
   metadata: any = {};
+  // CUSTOM-JOURNAL: the "Tags" row above the toolbar -- tag path strings
+  // staged for this entry, decoupled from the visible markdown body.
+  // `initialTags` is a snapshot taken when an existing note is loaded for
+  // edit (see useEditor.ts), used at send time to diff what changed: a path
+  // added since load gets appended as a "#path" hashtag, a path removed
+  // gets stripped out of content -- the same convention AI tagging already
+  // uses, since tags are still 100% content-derived (see
+  // syncNoteTagsFromContent). For a brand-new entry, initialTags starts
+  // empty, so every staged tag is simply appended on first save.
+  tags: string[] = []
+  initialTags: string[] = []
+
+  addTag(path: string) {
+    if (!this.tags.includes(path)) this.tags = [...this.tags, path]
+  }
+
+  removeTag(path: string) {
+    this.tags = this.tags.filter(p => p !== path)
+  }
 
   // CUSTOM-JOURNAL: mutates metadata AND persists the draft (create/edit-mode
   // storage, same pattern as content/attachments) so a refresh mid-compose
@@ -410,8 +431,31 @@ export class EditorStore {
         this.vditor?.insertValue(`\n\n${this.currentTagLabel} `)
         this.onChange?.(this.vditor?.getValue() ?? '')
       }
+      content = this.vditor?.getValue() ?? ''
+
+      // CUSTOM-JOURNAL: apply Tags-row changes to content before send -- a
+      // tag added since load becomes a trailing "#path" hashtag (skipped if
+      // already literally present in the body), a tag removed gets its
+      // hashtag stripped out. Tags stay 100% content-derived either way.
+      const removedTags = this.initialTags.filter(p => !this.tags.includes(p))
+      for (const path of removedTags) {
+        const hashtag = `#${path}`
+        content = content.replace(new RegExp(`(?:^|\\s)${escapeRegExp(hashtag)}(?=\\s|$)`, 'g'), '')
+      }
+      if (removedTags.length > 0) {
+        content = content.replace(/[ \t]+\n/g, '\n').trim()
+      }
+      const addedTags = this.tags.filter(p => !this.initialTags.includes(p))
+      const toAppend = addedTags.filter(path => {
+        const hashtag = `#${path}`
+        return !new RegExp(`(?:^|\\s)${escapeRegExp(hashtag)}(?:\\s|$)`).test(content)
+      })
+      if (toAppend.length > 0) {
+        content = `${content}\n${toAppend.map(p => `#${p}`).join(' ')}`
+      }
+
       await this.onSend?.({
-        content: this.vditor?.getValue() ?? '',
+        content,
         files: this.files.map(i => ({ ...i, uploadPath: i.uploadPromise.value })),
         noteType: this.noteType,
         references: this.references,
@@ -431,6 +475,8 @@ export class EditorStore {
     this.files = [];
     this.references = []
     this.metadata = {};
+    this.tags = [];
+    this.initialTags = [];
   }
 
   constructor() {

@@ -35,6 +35,7 @@ import { PluginApiStore } from "@/store/plugin/pluginApiStore";
 import { PluginRender } from '@/store/plugin/pluginRender';
 import { IconButton } from "./Toolbar/IconButton";
 import { ResourceReferenceButton } from "./Toolbar/ResourceReferenceButton";
+import { TagPicker } from '@/components/Common/TagPicker';
 
 //https://ld246.com/guide/markdown
 type IProps = {
@@ -137,6 +138,23 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
     </div>
   );
 
+  // CUSTOM-JOURNAL: the "Tags" section above the toolbar/button bar, both
+  // when composing a new entry and when editing an existing one -- see
+  // editorStore.tsx's tags/initialTags fields and useEditor.ts's edit-mode
+  // init. Not shown for the comment editor (comments don't have tags).
+  const renderTagsRow = () => {
+    if (mode === 'comment') return null;
+    return (
+      <div className='w-full mb-2'>
+        <TagPicker
+          currentTags={store.tags}
+          onAdd={(path) => store.addTag(path)}
+          onRemove={(path) => store.removeTag(path)}
+        />
+      </div>
+    );
+  };
+
   const [topToolbarElement, setTopToolbarElement] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
@@ -228,9 +246,12 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
     <>
       {/* Top toolbar portal */}
       {showTopToolbar && topToolbarElement && createPortal(
-        <div className='flex w-full items-center gap-1'>
-          {renderToolbar()}
-          {renderRightToolbar()}
+        <div className='flex flex-col w-full'>
+          {renderTagsRow()}
+          <div className='flex w-full items-center gap-1'>
+            {renderToolbar()}
+            {renderRightToolbar()}
+          </div>
         </div>,
         topToolbarElement
       )}
@@ -293,9 +314,12 @@ const Editor = observer(({ content, onChange, onSend, isSendLoading, originFiles
             ))}
 
           {!showTopToolbar && (
-            <div className='flex w-full items-center gap-1 mt-auto'>
-              {renderToolbar()}
-              {renderRightToolbar()}
+            <div className='w-full mt-auto'>
+              {renderTagsRow()}
+              <div className='flex w-full items-center gap-1'>
+                {renderToolbar()}
+                {renderRightToolbar()}
+              </div>
             </div>
           )}
         </div>

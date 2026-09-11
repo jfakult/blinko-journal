@@ -109,7 +109,12 @@ export const Sidebar = observer(({ onItemClick }: SidebarProps) => {
                 {!base.isSidebarCollapsed && <span className="!transition-all">{t(i.title)}</span>}
               </Link>
             ))}
-          {!base.isSidebarCollapsed && blinkoStore.tagList.value?.listTags.length != 0 && blinkoStore.tagList.value?.listTags && <TagListPanel />}
+          {/* CUSTOM-JOURNAL: always render (not gated on listTags.length) so the
+              "+ New Tag" button in TagListPanel's header stays reachable even
+              with zero tags -- previously this was a chicken-and-egg dead end,
+              since the only way to create a tag lived inside a component that
+              only rendered once a tag already existed. */}
+          {!base.isSidebarCollapsed && <TagListPanel />}
         </div>
       </ScrollShadow>
 

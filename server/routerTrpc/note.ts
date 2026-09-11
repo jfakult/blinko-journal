@@ -1051,6 +1051,17 @@ export const noteRouter = router({
           }
         }
 
+        // CUSTOM-JOURNAL: transcribe any newly-attached audio on an existing
+        // note too (previously only note creation ever triggered this, so
+        // adding a voice memo to an existing entry silently never got
+        // transcribed). No AI-tagging chain here -- editing a note doesn't
+        // re-trigger post-processing today, this only covers transcription.
+        if (config?.voiceModelId) {
+          AiService.transcribeAndAppend({ noteId: note.id, accountId: Number(ctx.id) }).catch((err) => {
+            console.error('Error in audio transcription:', err);
+          });
+        }
+
         SendWebhook({ ...note, attachments }, isRecycle ? 'delete' : 'update', ctx);
         return note;
       } else {
@@ -1084,67 +1095,32 @@ export const noteRouter = router({
             }
           }
 
-          // Process audio attachments if voice model is configured
-          if (config?.voiceModelId && attachments.length > 0) {
-            try {
-              // Check if there are any audio attachments
-              const audioAttachments = attachments.filter(attachment =>
-                AiService.isAudio(attachment.name || attachment.path)
-              );
+          // CUSTOM-JOURNAL: audio transcription + AI tagging, sequenced so
+          // voice-only entries don't get tagged/mood-scored on empty content.
+          // Both still run asynchronously (not awaited) so this mutation
+          // doesn't block on external ASR/LLM calls.
+          const hasPendingAudio = config?.voiceModelId
+            ? await AiService.hasPendingAudioTranscription(note.id)
+            : false;
 
-              if (audioAttachments.length > 0) {
-                // Run audio transcription asynchronously to not block the response
-                AiService.processNoteAudioAttachments({
-                  attachments: audioAttachments,
-                  voiceModelId: config.voiceModelId,
-                  accountId: Number(ctx.id),
-                }).then(({ success, transcriptions }) => {
-                  if (success && transcriptions.length > 0) {
-                    // Append transcriptions to note content
-                    const transcriptionText = transcriptions
-                      .map(t => `${t.transcription}`)
-                      .join('');
-
-                    // Update note with transcriptions
-                    prisma.notes.update({
-                      where: { id: note.id },
-                      data: { content: note.content + transcriptionText },
-                    }).then(() => {
-                      console.log(`Added transcriptions to note ${note.id},${transcriptionText}`);
-
-                      // Re-run embedding if model is configured
-                      if (config?.embeddingModelId) {
-                        AiService.embeddingUpsert({
-                          id: note.id,
-                          content: note.content + transcriptionText,
-                          type: 'update',
-                          createTime: note.createdAt!,
-                          updatedAt: new Date(),
-                        });
-                      }
-                    }).catch((err) => {
-                      console.error('Error updating note with transcription:', err);
-                    });
-                  }
-                }).catch((err) => {
-                  console.error('Error in audio transcription:', err);
-                });
-              }
-            } catch (error) {
-              console.error('Failed to start audio transcription:', error);
-            }
-          }
-
-          // Process with AI if post-processing is enabled
-          if (config?.isUseAiPostProcessing) {
-            try {
-              // Run post-processing asynchronously to not block the response
+          const runPostProcessing = () => {
+            if (config?.isUseAiPostProcessing) {
               AiService.postProcessNote({ noteId: note.id, ctx }).catch((err) => {
                 console.error('Error in post-processing note:', err);
               });
-            } catch (error) {
-              console.error('Failed to start post-processing:', error);
             }
+          };
+
+          if (hasPendingAudio) {
+            AiService.transcribeAndAppend({ noteId: note.id, accountId: Number(ctx.id) })
+              .then(runPostProcessing)
+              .catch((err) => {
+                console.error('Error in audio transcription:', err);
+                // Still tag on failure -- a stuck transcription shouldn't mean the entry never gets tagged.
+                runPostProcessing();
+              });
+          } else {
+            runPostProcessing();
           }
 
           SendWebhook({ ...note, attachments }, 'create', ctx);

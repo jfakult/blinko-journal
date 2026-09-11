@@ -19,6 +19,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
 import * as echarts from 'echarts';
 import { FontManager } from '@/lib/fontManager';
+import { helper } from '@/lib/helper';
 // Expose echarts globally for vditor chartRender
 if (typeof window !== 'undefined' && !(window as any).echarts) {
   (window as any).echarts = echarts;
@@ -570,6 +571,11 @@ export const useEditorInit = (
       // createAttachmentsStorage - previously metadata reset to {} on every
       // mount, so a refresh mid-compose silently lost an uploaded cover photo.
       store.metadata = { ...(blinko.createMetadataStorage.value?.metadata || {}) }
+      // CUSTOM-JOURNAL: fresh entry starts with no staged tags in the Tags
+      // row (currentTagLabel above handles the "?tagId=" pre-fill case
+      // separately, as a visible hashtag rather than a chip).
+      store.tags = []
+      store.initialTags = []
       if (searchParams.get('tagId')) {
         try {
           api.tags.fullTagNameById.query({ id: Number(searchParams.get('tagId')) }).then(res => {
@@ -592,6 +598,15 @@ export const useEditorInit = (
       // to content - a refresh mid-edit shouldn't lose an in-progress upload.
       const draftMetadata = blinko.editMetadataStorage.list?.find(i => Number(i.id) == Number(blinko.curSelectedNote?.id))
       store.metadata = { ...(blinko.curSelectedNote?.metadata || {}), ...(draftMetadata?.metadata || {}) }
+
+      // CUSTOM-JOURNAL: load this note's existing tags into the Tags row as
+      // chips (same path-flattening helper TagList/TagListPanel already use).
+      // initialTags is a snapshot -- handleSend() diffs against it to know
+      // which chips were added/removed since opening this note.
+      const tagTree = helper.buildHashTagTreeFromDb(((blinko.curSelectedNote?.tags as any) || []).map((t: any) => t.tag))
+      const notePaths = tagTree.flatMap((n: any) => helper.generateTagPaths(n))
+      store.tags = notePaths
+      store.initialTags = notePaths
     }
   }, [mode, searchParams.get('path'), searchParams.get('tagId'), blinko.curSelectedNote?.id]);
 };

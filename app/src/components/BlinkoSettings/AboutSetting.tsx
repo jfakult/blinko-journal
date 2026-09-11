@@ -163,7 +163,7 @@ export const AboutSetting = observer(() => {
         <h3 className="font-medium mb-2">{t('what-is-this-site', { defaultValue: 'What is this?' })}</h3>
         <p className="text-sm text-desc leading-relaxed">
           {t('what-is-this-site-blurb', {
-            defaultValue: "This is a private, voice-first journal. The idea isn't polished writing — it's capturing a moment of feeling before it passes: a quick voice note or a few typed lines, recorded consistently enough over months and years that the small, ordinary days end up remembered alongside the big ones. AI handles the tedious parts (transcription, tagging) so all that's actually required is a few honest seconds."
+            defaultValue: "This is a private, voice-first journal. It exists to capture a moment, feeling, or emotion while it is fresh in your mind. A quick voice note or a few typed lines, recorded consistently enough over months and years that the small, ordinary days end up remembered alongside the big ones. Behind the scenes, AI automatically transcribes, classifies, extracts embeddings, and tags entries to allow rich analysis natural language discussion about your entries."
           })}
         </p>
       </div>

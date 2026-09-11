@@ -55,6 +55,12 @@ model attachments {
   perfixPath    String?  @default("") @db.VarChar // folder1,folder2,folder3
   depth         Int?
   metadata      Json?           @db.Json
+  // CUSTOM-JOURNAL: null = an audio attachment hasn't had its transcript
+  // appended to the note yet (or this isn't audio). Set once
+  // AiService.transcribeAndAppend processes it -- see server/aiServer/index.ts.
+  // Also the gate that stops AI tagging from running on an audio-only entry
+  // before its transcript exists.
+  transcribedAt DateTime? @db.Timestamptz(6)
 
   note    notes?    @relation(fields: [noteId], references: [id])
   account accounts? @relation(fields: [accountId], references: [id])

@@ -42,7 +42,8 @@ export const attachmentsSchema = z.object({
   type: z.string(),
   depth: z.any(),
   perfixPath: z.any(),
-  metadata: z.any().optional()
+  metadata: z.any().optional(),
+  transcribedAt: z.date().nullable().optional()
 })
 
 export type attachments = z.infer<typeof attachmentsSchema>

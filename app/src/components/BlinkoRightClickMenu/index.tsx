@@ -24,6 +24,8 @@ import { useLocation } from "react-router-dom";
 import { ShowCommentDialog } from "../BlinkoCard/commentButton";
 import { useMediaQuery } from "usehooks-ts";
 import { FocusEditorFixMobile } from "@/components/Common/Editor/editorUtils";
+import { helper } from "@/lib/helper";
+import { TagPicker } from "@/components/Common/TagPicker";
 
 
 export const ShowEditTimeModel = (showExpired: boolean = false) => {
@@ -294,6 +296,37 @@ const handleAITag = () => {
   aiStore.autoTag.call(blinko.curSelectedNote?.id!, blinko.curSelectedNote?.content!)
 }
 
+// CUSTOM-JOURNAL: manual "add/remove tags on this entry" dialog, distinct
+// from AITagItem above (which asks the AI to suggest tags) -- opens the
+// shared TagPicker scoped to whichever note the menu was triggered on.
+const AddTagDialogContent = observer(() => {
+  const blinko = RootStore.Get(BlinkoStore)
+  const note = blinko.curSelectedNote
+  const noteId = note?.id ? Number(note.id) : undefined
+  const tagTree = helper.buildHashTagTreeFromDb(((note?.tags as any) || []).map((t: any) => t.tag))
+  const currentTags = tagTree.flatMap((n: any) => helper.generateTagPaths(n))
+
+  if (!noteId) return null
+
+  return (
+    <div className="pb-2">
+      <TagPicker
+        currentTags={currentTags}
+        onAdd={(path) => { api.tags.attachToNote.mutate({ noteId, tagPath: path }).then(() => blinko.forceQuery++) }}
+        onRemove={(path) => { api.tags.detachFromNote.mutate({ noteId, tagPath: path }).then(() => blinko.forceQuery++) }}
+      />
+    </div>
+  )
+})
+
+const handleAddTag = () => {
+  RootStore.Get(DialogStore).setData({
+    isOpen: true,
+    title: i18n.t('add-tag'),
+    content: <AddTagDialogContent />
+  })
+}
+
 const handleTrash = () => {
   const blinko = RootStore.Get(BlinkoStore)
   PromiseCall(api.notes.trashMany.mutate({ ids: [blinko.curSelectedNote?.id!] }))
@@ -411,6 +444,16 @@ export const AITagItem = observer(() => {
   );
 });
 
+export const AddTagItem = observer(() => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-start gap-2">
+      <Icon icon="mingcute:add-line" width="20" height="20" />
+      <div>{t('add-tag')}</div>
+    </div>
+  );
+});
+
 export const RelatedNotesItem = observer(() => {
   const { t } = useTranslation();
   return (
@@ -505,6 +548,10 @@ export const BlinkoRightClickMenu = observer(() => {
       </ContextMenuItem>
     ) : <></>}
 
+    <ContextMenuItem onClick={handleAddTag}>
+      <AddTagItem />
+    </ContextMenuItem>
+
     {blinko.config.value?.mainModelId ? (
       <ContextMenuItem onClick={handleAITag}>
         <AITagItem />
@@ -588,6 +635,10 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
           <CommentItem />
         </DropdownItem>
       ) : <></>}
+
+      <DropdownItem key="AddTagItem" onPress={handleAddTag}>
+        <AddTagItem />
+      </DropdownItem>
 
       {blinko.config.value?.mainModelId ? (
         <DropdownItem key="AITagItem" onPress={handleAITag}>

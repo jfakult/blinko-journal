@@ -60,7 +60,13 @@ COPY . .
 RUN bun run build:web
 RUN bun run build:seed
 
-RUN printf '#!/bin/sh\necho "Current Environment: $NODE_ENV"\nnpx prisma migrate deploy\nnode server/seed.js\nnode server/index.js\n' > start.sh && \
+# CUSTOM-JOURNAL: `set -e` so a failed migration actually stops the boot
+# instead of the container silently starting against a stale schema (the
+# prior version had no error handling between these steps -- a `prisma
+# migrate deploy` failure would be swallowed and node server/index.js would
+# start anyway, serving a Prisma Client that expects columns the DB doesn't
+# have yet).
+RUN printf '#!/bin/sh\nset -e\necho "Current Environment: $NODE_ENV"\nnpx prisma migrate deploy\nnode server/seed.js\nnode server/index.js\n' > start.sh && \
     chmod +x start.sh
 
 

@@ -21,6 +21,7 @@
   "confirm-to-delete": "Confirm to delete!",
   "this-operation-removes-the-associated-label-and-cannot-be-restored-please-confirm": "This action will delete the related tags and cannot be undone. Please confirm.",
   "add-tag": "Add Tag",
+  "search-or-create-tag": "Search or create a tag...",
   "cancel": "Cancel",
   "no-data-here-well-then-time-to-write-a-note": "Nothing here yet~ Time to write an entry.",
   "basic-information": "Basic Information",

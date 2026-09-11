@@ -190,14 +190,24 @@ export class TagAuditJob extends BaseScheduleJob {
           if (processedIds.has(note.id)) continue;
 
           try {
-            const suggestedTags = await AiService.suggestTags(note.content);
-            const newContent = suggestedTags.length > 0 ? `${note.content}\n${suggestedTags.join(' ')}` : note.content;
-            if (newContent !== note.content) {
+            // CUSTOM-JOURNAL: backfill notes never reached by the live
+            // create-path sequencing too -- transcribe pending audio first
+            // so a voice-only entry doesn't get tagged on empty content.
+            let noteContent = note.content;
+            if (await AiService.hasPendingAudioTranscription(note.id)) {
+              await AiService.transcribeAndAppend({ noteId: note.id, accountId: note.accountId! });
+              const refreshed = await prisma.notes.findUnique({ where: { id: note.id }, select: { content: true } });
+              noteContent = refreshed?.content ?? note.content;
+            }
+
+            const suggestedTags = await AiService.suggestTags(noteContent);
+            const newContent = suggestedTags.length > 0 ? `${noteContent}\n${suggestedTags.join(' ')}` : noteContent;
+            if (newContent !== noteContent) {
               await prisma.notes.update({ where: { id: note.id }, data: { content: newContent } });
             }
             await syncNoteTagsFromContent(note.id, note.accountId!, newContent);
 
-            const moodScores = await AiService.scoreMood(note.content);
+            const moodScores = await AiService.scoreMood(noteContent);
 
             await prisma.notes.update({
               where: { id: note.id },
@@ -207,7 +217,7 @@ export class TagAuditJob extends BaseScheduleJob {
               },
             });
 
-            results.push({ type: 'success', content: note.content.slice(0, 30), timestamp: new Date().toISOString() });
+            results.push({ type: 'success', content: noteContent.slice(0, 30), timestamp: new Date().toISOString() });
             processedIds.add(note.id);
             current++;
           } catch (error: any) {
