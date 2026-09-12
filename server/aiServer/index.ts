@@ -14,11 +14,13 @@ import { CreateNotification } from '../routerTrpc/notification';
 import { NotificationType } from '@shared/lib/prismaZodType';
 import { CoreMessage } from '@mastra/core';
 import { MDocument } from '@mastra/rag';
-import { embedMany } from 'ai';
+import { embedMany, generateObject } from 'ai';
+import { z } from 'zod';
+import dayjs from '@shared/lib/dayjs';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
 
-import { getAllPathTags } from '@server/lib/helper';
-import { logAiTaskStart, logAiTaskFinish, callAgentWithLog } from '@server/lib/aiTaskLog';
+import { getAllPathTags, syncNoteTagsFromContent } from '@server/lib/helper';
+import { logAiTaskStart, logAiTaskFinish, callAgentWithLog, logAiTaskCall } from '@server/lib/aiTaskLog';
 import { commentWebhookInclude, sendCommentWebhook } from '@server/lib/commentWebhook';
 import { LibSQLVector } from '@mastra/libsql';
 import { RuntimeContext } from "@mastra/core/di";
@@ -276,12 +278,36 @@ export class AiService {
         .map((m) => m.content as string);
       const cleanedConversations = conversations.filter((m) => m.role !== 'system');
 
+      // CUSTOM-JOURNAL: previously injected retrieved notes as a bare,
+      // unlabeled blob ("This is the note content ...") alongside a generic
+      // "versatile AI assistant" persona that says nothing about journaling
+      // or retrieval at all -- with no capability statement and no
+      // distinction between "notes were found" vs "none were found" (an
+      // empty ragNote still produced a non-empty-looking string), the model
+      // had every reason to fall back to its trained-in generic disclaimer
+      // ("I don't have access to your personal history...") even when real
+      // entries were sitting right there in context. Now: explicit
+      // capability statement, each entry clearly delimited with its date,
+      // and an explicit "nothing found" instruction when the search comes
+      // up empty instead of an ambiguous blank-looking fragment. (Also drops
+      // queryVector's `aiContext` return value, which just duplicated
+      // `notes`' content a second time via an unjoined array -- redundant.)
       let ragNote: any[] = [];
       let ragNoteString = '';
       if (withRAG) {
-        let { notes, aiContext } = await AiModelFactory.queryVector(question, Number(ctx.id));
+        const { notes } = await AiModelFactory.queryVector(question, Number(ctx.id));
         ragNote = notes;
-        ragNoteString = `This is the note content ${ragNote.map((i) => i.content).join('\n')} ${aiContext}`;
+        if (notes.length > 0) {
+          const entries = notes
+            .map((note: any, i: number) => {
+              const date = note.createdAt ? dayjs(note.createdAt).format('YYYY-MM-DD') : 'unknown date';
+              return `--- Journal entry ${i + 1} (${date}) ---\n${note.content}`;
+            })
+            .join('\n\n');
+          ragNoteString = `You have retrieval-augmented access to the user's personal journal. The following ${notes.length} ${notes.length === 1 ? 'entry was' : 'entries were'} retrieved specifically because they are relevant to the user's current question. Treat them as real, ground-truth excerpts from the user's own life -- answer confidently using them, and do not claim you lack access to the user's personal history when entries like these are provided.\n\n${entries}`;
+        } else {
+          ragNoteString = "You have retrieval-augmented access to the user's personal journal, but no entries matching this specific question were found. Tell the user you searched their journal and didn't find anything relevant to this question, rather than saying you have no access to their personal history at all.";
+        }
       }
 
       const contextParts = [
@@ -382,6 +408,20 @@ export class AiService {
     }
   }
 
+  // CUSTOM-JOURNAL: same idea as #getPostProcessingModelInfo, but for the
+  // voice/transcription model -- used to label transcription's per-call log
+  // entries with which model actually ran.
+  static async #getVoiceModelInfo(config?: any): Promise<{ provider: string | null; title: string | null }> {
+    try {
+      const globalConfig = config ?? (await AiModelFactory.globalConfig());
+      if (!globalConfig.voiceModelId) return { provider: null, title: null };
+      const model = await AiModelFactory.getAiModel(globalConfig.voiceModelId);
+      return { provider: model?.provider?.title ?? model?.provider?.provider ?? null, title: model?.title ?? null };
+    } catch {
+      return { provider: null, title: null };
+    }
+  }
+
   // CUSTOM-JOURNAL: shared by postProcessNote's live 'tags'/'both' path and
   // server/jobs/tagAuditJob.ts's backfill pass, so both run identical logic.
   static async suggestTags(content: string, taskLogId: number | null = null): Promise<string[]> {
@@ -405,34 +445,72 @@ export class AiService {
   // CUSTOM-JOURNAL: scores every active moodAxis (0-100) for a note's content,
   // returning a map keyed by moodAxis.id (string) ready to store directly in
   // notes.moodScores. Shared the same way suggestTags is.
+  //
+  // Uses schema-enforced structured output (Vercel AI SDK's generateObject)
+  // instead of the free-text "label:score,label:score" parsing this used to
+  // do -- that approach silently dropped any axis the model omitted or
+  // mislabeled (a real completeness gap, not just a calibration one). A
+  // dynamically-built Zod schema (one number field per active axis,
+  // 0-100) guarantees every axis comes back with a value; called directly
+  // against the raw post-processing model rather than through
+  // AiModelFactory.MoodAgent's Agent wrapper, since Mastra's Agent.generate
+  // doesn't expose a structured-output mode as cleanly as generateObject
+  // does for a schema built fresh per call (the axis list is user-editable).
+  // If a provider/model handles forced JSON schema output poorly, this
+  // throws and is caught by postProcessNote's existing try/catch around
+  // scoreMood -- mood scoring is just skipped for that note, same as any
+  // other failure today.
   static async scoreMood(content: string, taskLogId: number | null = null): Promise<Record<string, number>> {
     const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
     if (axes.length === 0) return {};
+
+    const schema = z.object(
+      Object.fromEntries(axes.map((axis) => [String(axis.id), z.number().min(0).max(100)]))
+    );
+
     const axesDescription = axes
       .map((axis) => (axis.negativeLabel ? `${axis.positiveLabel}/${axis.negativeLabel}` : axis.positiveLabel))
       .join('\n');
-    const moodAgent = await AiModelFactory.MoodAgent(axesDescription);
+    const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
     const input = `Entry content:\n${content}`;
+
+    const model = await AiModelFactory.GetPostProcessingLLM();
     const modelInfo = await AiService.#getPostProcessingModelInfo();
-    const result = await callAgentWithLog({
-      taskLogId,
-      agent: 'MoodAgent',
-      provider: modelInfo.provider,
-      modelTitle: modelInfo.title,
-      input,
-      run: () => moodAgent.generate(input),
-    });
-    const scores: Record<string, number> = {};
-    const pairs = result.text.split(',').map((pair: string) => pair.trim()).filter(Boolean);
-    for (const pair of pairs) {
-      const [label, scoreStr] = pair.split(':').map((s: string) => s.trim());
-      const axis = axes.find((a) => a.positiveLabel === label);
-      const score = Number(scoreStr);
-      if (axis && !Number.isNaN(score)) {
-        scores[String(axis.id)] = Math.max(0, Math.min(100, Math.round(score)));
+    const startedAt = new Date();
+    try {
+      const result = await generateObject({ model, schema, system: systemPrompt, prompt: input });
+      await logAiTaskCall(taskLogId, {
+        agent: 'MoodAgent',
+        provider: modelInfo.provider,
+        modelTitle: modelInfo.title,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt.getTime(),
+        input,
+        output: JSON.stringify(result.object),
+      });
+      const scores: Record<string, number> = {};
+      for (const axis of axes) {
+        const score = (result.object as Record<string, number>)[String(axis.id)];
+        if (typeof score === 'number' && !Number.isNaN(score)) {
+          scores[String(axis.id)] = Math.max(0, Math.min(100, Math.round(score)));
+        }
       }
+      return scores;
+    } catch (error: any) {
+      await logAiTaskCall(taskLogId, {
+        agent: 'MoodAgent',
+        provider: modelInfo.provider,
+        modelTitle: modelInfo.title,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedAt.getTime(),
+        input,
+        output: '',
+        error: error?.message || String(error),
+      });
+      throw error;
     }
-    return scores;
   }
 
   // CUSTOM-JOURNAL: appends AI-suggested tags via optimistic-concurrency
@@ -769,11 +847,13 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
   static async processNoteAudioAttachments({
     attachments,
     voiceModelId,
-    accountId
+    accountId,
+    taskLogId = null,
   }: {
     attachments: Array<{ name: string; path: string; type?: string }>;
     voiceModelId: number;
     accountId: number;
+    taskLogId?: number | null;
   }): Promise<{ success: boolean; transcriptions: Array<{ fileName: string; transcription: string }> }> {
     try {
       const audioAttachments = attachments.filter(attachment =>
@@ -784,10 +864,16 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         return { success: true, transcriptions: [] };
       }
 
+      // CUSTOM-JOURNAL: resolved once per batch, not per file -- used to
+      // label each per-call log entry (see logAiTaskCall below) the same way
+      // TagAgent/MoodAgent/CommentAgent's calls already are.
+      const modelInfo = await AiService.#getVoiceModelInfo();
+
       const transcriptions: any = [];
 
       for (const attachment of audioAttachments) {
         let cleanup: (() => Promise<void>) | undefined;
+        const startedAt = new Date();
         try {
           // Use FileService to get file path (handles both local and S3 storage)
           const fileResult = await FileService.getFile(attachment.path);
@@ -804,9 +890,35 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
             transcription,
           });
 
+          // CUSTOM-JOURNAL: call-level log entry with real content (input =
+          // which file, output = the transcript itself) -- previously
+          // transcription only ever got a task-level start/finish row with
+          // no calls, so its detail view showed nothing to actually read.
+          await logAiTaskCall(taskLogId, {
+            agent: 'AudioTranscription',
+            provider: modelInfo.provider,
+            modelTitle: modelInfo.title,
+            startedAt: startedAt.toISOString(),
+            finishedAt: new Date().toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            input: `Audio file: ${attachment.name || attachment.path}`,
+            output: transcription,
+          });
+
           console.log(`Transcribed audio: ${attachment.name}`);
         } catch (error) {
           console.error(`Failed to transcribe audio ${attachment.name}:`, error);
+          await logAiTaskCall(taskLogId, {
+            agent: 'AudioTranscription',
+            provider: modelInfo.provider,
+            modelTitle: modelInfo.title,
+            startedAt: startedAt.toISOString(),
+            finishedAt: new Date().toISOString(),
+            durationMs: Date.now() - startedAt.getTime(),
+            input: `Audio file: ${attachment.name || attachment.path}`,
+            output: '',
+            error: error?.message || String(error),
+          });
         } finally {
           // Clean up temporary file if using S3 storage
           if (cleanup) {
@@ -858,6 +970,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       attachments: pendingAttachments,
       voiceModelId: config.voiceModelId,
       accountId,
+      taskLogId,
     });
 
     // Mark every attempted attachment as processed regardless of per-file

@@ -18,6 +18,7 @@ import { EmbeddingSettingsSection } from './EmbeddingSettingsSection';
 import { TagAuditSection } from './TagAuditSection';
 import { MoodAxisSection } from './MoodAxisSection';
 import { AiTaskLogSection } from './AiTaskLogSection';
+import { AiHintPromptsSection } from './AiHintPromptsSection';
 import ModelDialogContent from './ModelDialogContent';
 import { McpServersSection } from './McpServersSection';
 import { AiSettingStore } from '@/store/aiSettingStore';
@@ -92,6 +93,8 @@ export default observer(function AiSetting() {
       <GlobalPromptSection />
 
       <AiPostProcessingSection />
+
+      <AiHintPromptsSection />
 
       <TagAuditSection />
 

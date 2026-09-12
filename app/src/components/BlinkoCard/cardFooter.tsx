@@ -1,11 +1,15 @@
 import { Icon } from '@/components/Common/Iconify/icons';
-import { Tooltip } from '@heroui/react';
+import { Popover, PopoverTrigger, PopoverContent } from '@heroui/react';
 import { Note } from '@shared/lib/types';
 import { BlinkoStore } from '@/store/blinkoStore';
 import { useTranslation } from 'react-i18next';
+import { useState } from 'react';
 import { CommentCount } from './commentButton';
 import { TagList } from '@/components/Common/TagList';
 import { BlinkoItem } from '.';
+import { SentimentView } from '@/components/Common/SentimentView';
+import { moodAxis } from '@shared/lib/prismaZodType';
+import { api } from '@/lib/trpc';
 
 interface CardFooterProps {
   blinkoItem: BlinkoItem;
@@ -25,13 +29,44 @@ export const CardFooter = ({ blinkoItem, blinko, isShareMode }: CardFooterProps)
 
 const RightContent = ({ blinkoItem, t }: { blinkoItem: Note; t: any }) => {
   return (
-    <div className="ml-auto flex items-center gap-2">
+    <div className="ml-auto flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
       {<CommentCount blinkoItem={blinkoItem} />}
-      {blinkoItem?.metadata?.isIndexed && (
-        <Tooltip content={'Indexed'} delay={1500}>
-          <Icon className="!text-ignore opacity-50" icon="hugeicons:ai-beautify" width="16" height="16" />
-        </Tooltip>
-      )}
+      <SentimentIcon blinkoItem={blinkoItem} />
     </div>
+  );
+};
+
+// CUSTOM-JOURNAL: replaces the old "Indexed" icon (hugeicons:ai-beautify,
+// purely decorative, no onClick -- "does nothing" per user report). Shown
+// whenever the note has mood scores; clicking opens a Popover (not the
+// DialogStore modal the right-click menu's "View Sentiments" uses, so this
+// stays a quick glance) with the same SentimentView bars.
+const SentimentIcon = ({ blinkoItem }: { blinkoItem: Note }) => {
+  const [axes, setAxes] = useState<moodAxis[] | null>(null);
+  const moodScores = blinkoItem?.moodScores as Record<string, number> | null | undefined;
+
+  if (!moodScores || Object.keys(moodScores).length === 0) return null;
+
+  return (
+    <Popover placement="top" showArrow onOpenChange={(open) => {
+      if (open && !axes) {
+        api.ai.moodAxisList.query().then(setAxes).catch(() => setAxes([]));
+      }
+    }}>
+      <PopoverTrigger>
+        <div className="cursor-pointer">
+          <Icon className="text-desc opacity-70 hover:opacity-100 !transition-all" icon="mdi:emoticon-outline" width="16" height="16" />
+        </div>
+      </PopoverTrigger>
+      <PopoverContent>
+        <div className="p-3 w-[240px]">
+          {axes ? (
+            <SentimentView axes={axes} moodScores={moodScores} />
+          ) : (
+            <div className="flex justify-center py-4"><Icon icon="line-md:loading-twotone-loop" width="20" height="20" /></div>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 };

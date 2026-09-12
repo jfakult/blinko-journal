@@ -246,13 +246,20 @@ async function seedDefaultAiConfig() {
     console.log('ℹ WHISPER_BASE_URL not set — skipping voice transcription setup (voiceModelId left unconfigured). Set it and restart once the Whisper service is deployed.');
   }
 
-  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture who, where, how the writer felt, what kind of occasion this was, and what it's about. Rules:
-1. **Categories to draw from**: people mentioned (by name or relationship, e.g. #people/mom, #people/sarah), places (e.g. #places/home, #places/lake-house), mood or emotional tone (e.g. #mood/grateful, #mood/anxious, #mood/excited, #mood/tired), occasion or event type (e.g. #occasion/birthday, #occasion/milestone, #occasion/everyday, #occasion/trip), and topic/theme -- the subject the entry is mainly about (e.g. #theme/work, #theme/relationships, #theme/health, #theme/finances, #theme/creative, #theme/personal-growth).
+  // CUSTOM-JOURNAL: freeform, flat tags -- no category prefixes or slash
+  // hierarchy (was #people/mom, #places/home, #theme/work, etc.). Dropped
+  // per explicit request: single-word or hyphenated tags only, no slashes,
+  // for cleaner organization. setConfigIfMissing only writes when unset, so
+  // updating this constant won't retroactively change an already-seeded
+  // prompt on a live server -- clear the 'aiTagsPrompt' config row (or edit
+  // it directly in AI Settings -> Post-Processing) to pick this up there.
+  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the topic/theme. Rules:
+1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure.
 2. **Reuse first**: prefer an existing tag from the provided tag list over inventing a new one, if it genuinely fits.
-3. **New tags**: if nothing existing fits, create a new tag under one of the five categories above using the #category/value pattern.
+3. **New tags**: if nothing existing fits, invent a new single-word or hyphenated tag.
 4. **Avoid generic note-taking tags**: do NOT use tags like #todo, #idea, #project, #meeting unless the entry is genuinely about work — this is a personal journal, not a notes app.
 5. **Language**: match the language of the entry.
-6. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #people/mom,#places/home,#mood/grateful,#occasion/everyday,#theme/relationships`;
+6. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #mom,#home,#grateful,#roadtrip`;
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
@@ -266,6 +273,26 @@ async function seedDefaultAiConfig() {
   // Both are still user-editable in Settings -> Preferences.
   await setConfigIfMissing('isOrderByCreateTime', true);
   await setConfigIfMissing('timeFormat', 'dddd, MMM D, YYYY [at] h:mmA');
+
+  // CUSTOM-JOURNAL: starter prompts shown (3 at random) on the AI tab --
+  // previously a hardcoded array of i18n keys in app/src/pages/ai.tsx, moved
+  // to a plain newline-separated config value so the user can add/edit/
+  // remove hints from AI Settings -> AI Hint Prompts without a redeploy.
+  const defaultHintPrompts = [
+    "Summarize what I've written about over the past week and highlight anything notable.",
+    'I want to search my past entries — ask me what topic, person, or place to look for.',
+    'Look across my recent entries and tell me about any patterns or trends you notice — in mood, topics, people, or habits.',
+    'How have I been feeling lately, based on my recent entries?',
+    'Find every entry that mentions a specific person and summarize what I wrote about them — ask me who.',
+    'Find my oldest archived entries, summarize them, and save the summary as a new entry.',
+    'What happened when I was in Europe?',
+    'When was the last time I laughed so hard I cried?',
+    "What's a place I've written about that I seem to really love?",
+    'Tell me about a recent moment that really stuck with me.',
+    "What's something surprising or funny that happened recently, based on my entries?",
+    "Pull up an old entry I've probably forgotten about and remind me what I wrote.",
+  ].join('\n');
+  await setConfigIfMissing('aiHintPrompts', defaultHintPrompts);
 
   console.log('✅ AI config seed/self-heal pass complete.');
 }

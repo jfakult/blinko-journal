@@ -38,14 +38,18 @@ export const tagRouter = router({
     }))
     .output(tagSchema)
     .mutation(async function ({ input, ctx }) {
-      const { name, icon, parent } = input
+      const trimmedName = input.name.trim()
+      const { icon, parent } = input
       const accountId = Number(ctx.id)
-      const existing = await prisma.tag.findFirst({ where: { name, parent: parent ?? 0, accountId } })
+      // CUSTOM-JOURNAL: case-insensitive + trimmed match, matching
+      // syncNoteTagsFromContent's handleAddTags -- manual and AI-driven tag
+      // creation must agree on what counts as a duplicate.
+      const existing = await prisma.tag.findFirst({ where: { name: { equals: trimmedName, mode: 'insensitive' }, parent: parent ?? 0, accountId } })
       if (existing) {
         throw new Error('A tag with this name already exists at this level')
       }
       return await prisma.tag.create({
-        data: { name, icon: icon ?? '', parent: parent ?? 0, accountId }
+        data: { name: trimmedName, icon: icon ?? '', parent: parent ?? 0, accountId }
       })
     }),
 

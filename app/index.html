@@ -34,7 +34,13 @@
   <meta name="theme-color" content="#15072B" />
   <base href="./" />
 
-  <link rel="manifest" href="./manifest.json" />
+  <!-- CUSTOM-JOURNAL: was "./manifest.json", pointing at a separate static
+       file (app/public/manifest.json, now deleted) that duplicated --
+       and could silently drift from -- the manifest vite-plugin-pwa
+       actually generates from app/vite.config.ts's `manifest:` block. That
+       plugin's default output filename is manifest.webmanifest, so this now
+       points at the one place the manifest is actually produced. -->
+  <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="shortcut icon" href="./favicon.ico" />
   <title>Journal</title>
   <!-- 

@@ -480,12 +480,13 @@ export class AiModelFactory {
       isWritingAgent?: boolean;
       // CUSTOM-JOURNAL: 'postProcessing' routes this agent through
       // GetPostProcessingLLM() (postProcessingModelId, falling back to
-      // mainModelId) instead of the main chat provider -- set on the three
-      // agents AiService.postProcessNote/tagAuditJob actually use
-      // (TagAgent, MoodAgent, CommentAgent), so a user can point
-      // post-processing at a different (e.g. cheaper/local) model without
-      // affecting the interactive chat agent or the other single-purpose
-      // agents built through this same factory.
+      // mainModelId) instead of the main chat provider -- set on the
+      // post-processing agents built through this factory (TagAgent,
+      // CommentAgent; MoodAgent moved to a direct generateObject call using
+      // GetPostProcessingLLM() itself, see AiService.scoreMood), so a user
+      // can point post-processing at a different (e.g. cheaper/local) model
+      // without affecting the interactive chat agent or the other
+      // single-purpose agents built through this same factory.
       useModelId?: 'main' | 'postProcessing';
     },
   ) {
@@ -519,13 +520,19 @@ export class AiModelFactory {
       if (customPrompt) {
         return customPrompt;
       }
+      // CUSTOM-JOURNAL: flat, single-word/hyphenated tags -- no slash
+      // hierarchy. This is the generic fallback used only when no
+      // config.aiTagsPrompt is set (this journal always seeds one via
+      // prisma/seed.ts's journalTagsPrompt, so in practice this path is a
+      // safety net for a fresh DB, not what actually runs) -- kept in sync
+      // with that seeded prompt's no-slashes convention regardless.
       return `You are a precise label classification expert, and you will generate precisely matched content labels based on the content. Rules:
       1. **Core Selection Principle**: Select 5 to 8 tags from the existing tag list that are most relevant to the content theme. Carefully compare the key information, technical types, application scenarios, and other elements of the content to ensure that the selected tags accurately reflect the main idea of the content.
       2. **Language Matching Strategy**: If the language of the existing tags does not match the language of the content, give priority to using the language of the existing tags to maintain the consistency of the language style of the tag system.
-      3. **Tag Structure Requirements**: When using existing tags, it is necessary to construct a parent-child hierarchical structure. For example, place programming language tags under parent tags such as #Code or #Programming, like #Code/JavaScript, #Programming/Python. When adding new tags, try to classify them under appropriate existing parent tags as well.
-      4. **New Tag Generation Rules**: If there are no tags in the existing list that match the content, create new tags based on the key technologies, business fields, functional features, etc. of the content. The language of the new tags should be consistent with that of the content.
+      3. **Tag Format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #javascript, #web-development). Never use slashes or any other category-prefix/hierarchy structure.
+      4. **New Tag Generation Rules**: If there are no tags in the existing list that match the content, create new single-word or hyphenated tags based on the key technologies, business fields, functional features, etc. of the content. The language of the new tags should be consistent with that of the content.
       5. **Response Format Specification**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript.
-      6. **Example**: For JavaScript content related to web development, a reference response could be #Programming/Languages, #Web/Development, #Code/JavaScript, #Front-End Development/Frameworks (if applicable), #Browser Compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly. 
+      6. **Example**: For JavaScript content related to web development, a reference response could be #JavaScript,#web-development,#frontend,#browser-compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly.
           `;
     },
     'BlinkoTag',
@@ -542,23 +549,26 @@ export class AiModelFactory {
     'BlinkoEmoji',
   );
 
-  static MoodAgent = AiModelFactory.#createAgentFactory(
-    'Blinko Mood Agent',
-    (axesDescription?: string) => {
-      return `You are an emotional-tone analysis expert for a personal voice journal. Given the entry content and the mood dimensions listed below, score how strongly each dimension is present, from 0 to 100.
+  // CUSTOM-JOURNAL: was a #createAgentFactory-produced Agent whose .generate()
+  // returned free-text "label:score,..." pairs -- moved to a plain prompt
+  // builder because AiService.scoreMood now calls generateObject directly
+  // against the post-processing model with a per-call Zod schema (one
+  // number field per active moodAxis), guaranteeing every axis gets scored
+  // instead of silently dropping any axis the model omitted from free text.
+  // This is still just the descriptive/calibration half of that prompt --
+  // the schema itself enforces the response shape.
+  static moodSystemPrompt(axesDescription: string): string {
+    return `You are an emotional-tone analysis expert for a personal voice journal. Given the entry content and the mood dimensions listed below, score how strongly each dimension is present, from 0 to 100, for every dimension listed.
 
 Mood dimensions:
-${axesDescription || ''}
+${axesDescription}
 
 Rules:
 1. A bipolar dimension is given as "positiveLabel/negativeLabel" (e.g. "positive/negative"). Score 0 = fully negativeLabel, 100 = fully positiveLabel, 50 = neutral/mixed.
 2. A unipolar dimension is given as a single label (e.g. "joy"). Score 0 = that emotion is entirely absent from the entry, 100 = it is maximally present. Most entries will score low on most unipolar emotions -- only score high when the entry clearly expresses that specific emotion.
 3. Base every score only on what's actually expressed or implied in the entry content, never on assumptions beyond the text.
-4. Response format: return only "label:score" pairs separated by commas, one per dimension given, in the same order, using each dimension's positiveLabel as the label. No spaces, no explanation, no code blocks or Markdown. Example: positive:70,anger:5,anxiety:15,joy:60,sadness:5,surprise:20,fear:5,excitement:55,gratitude:65`;
-    },
-    'BlinkoMood',
-    { useModelId: 'postProcessing' },
-  );
+4. Every dimension listed must be scored -- do not omit any, even if the score is 0.`;
+  }
 
   static RelatedNotesAgent = AiModelFactory.#createAgentFactory(
     'Blinko Related Notes Agent',

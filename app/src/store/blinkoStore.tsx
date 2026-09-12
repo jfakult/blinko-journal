@@ -529,9 +529,16 @@ export class BlinkoStore implements Store {
     } else if (currentPath === 'trash') {
       await this.trashList.callNextPage({});
     } else if (currentPath === 'all') {
-      this.noteList.resetAndCall({});
+      // CUSTOM-JOURNAL: was resetAndCall({}), which resets to page 1 and
+      // re-fetches it on every scroll-to-bottom instead of advancing --
+      // infinite scroll on a tag-filtered (?path=all) list looked like it
+      // was loading but never appended anything new.
+      await this.noteList.callNextPage({});
     } else {
-      await this.blinkoList.callNextPage({});
+      // CUSTOM-JOURNAL: aligned with index.tsx's default render branch
+      // (noteOnlyList) -- currently unreachable in normal nav (every real
+      // path value is handled above), fixed for consistency.
+      await this.noteOnlyList.callNextPage({});
     }
   }
 

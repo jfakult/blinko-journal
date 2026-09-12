@@ -4,6 +4,7 @@ import { AiInput } from '@/components/BlinkoAi/aiInput';
 import { useMediaQuery } from 'usehooks-ts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AiStore } from '@/store/aiStore';
+import { BlinkoStore } from '@/store/blinkoStore';
 import { RootStore } from '@/store';
 import { cn } from '@/lib/utils';
 import { observer } from 'mobx-react-lite';
@@ -22,6 +23,7 @@ const AIPage = observer(() => {
   const { t } = useTranslation()
   const aiStore = RootStore.Get(AiStore)
   const baseStore = RootStore.Get(BaseStore)
+  const blinko = RootStore.Get(BlinkoStore)
   const InputBoxRef = useRef<HTMLDivElement>(null);
   const theme = useTheme();
   const [inputHeight, setInputHeight] = useState(0);
@@ -58,29 +60,25 @@ const AIPage = observer(() => {
   ]
 
   // CUSTOM-JOURNAL: replaces the old fixed Recall/Search/Trends button row --
-  // those three prompts are folded into this pool alongside new ones focused
-  // on moments/places/memories, and every load shows 3 picked at random so
-  // the entry point into RAG-backed chat stays discoverable without needing
-  // a taxonomy of buttons. useMemo with no deps keeps the pick stable across
-  // re-renders of this mount (a fresh pick happens on the next page visit).
-  const hintPromptKeys = [
-    'ai-prompt-recall',
-    'ai-prompt-search',
-    'ai-prompt-trends',
-    'ai-prompt-suggestion-mood',
-    'ai-prompt-suggestion-find-person',
-    'ai-prompt-suggestion-archive-summary',
-    'ai-prompt-hint-europe',
-    'ai-prompt-hint-laugh',
-    'ai-prompt-hint-place-love',
-    'ai-prompt-hint-recent-moment',
-    'ai-prompt-hint-surprising',
-    'ai-prompt-hint-forgotten',
+  // prompts now come from config.aiHintPrompts (one per line, editable in AI
+  // Settings -> AI Hint Prompts without a redeploy -- was a hardcoded array
+  // of i18n keys here), and every load shows 3 picked at random so the entry
+  // point into RAG-backed chat stays discoverable without a taxonomy of
+  // buttons. Falls back to a small default set if config hasn't loaded /
+  // isn't set yet. Keyed on the config string so the pick is recomputed once
+  // config actually loads, but stays stable across re-renders after that.
+  const defaultHintPrompts = [
+    t('ai-prompt-recall'),
+    t('ai-prompt-search'),
+    t('ai-prompt-trends'),
+    t('ai-prompt-suggestion-mood'),
   ];
   const hintPrompts = useMemo(() => {
-    return [...hintPromptKeys].sort(() => Math.random() - 0.5).slice(0, 3);
+    const configured = blinko.config.value?.aiHintPrompts?.split('\n').map(p => p.trim()).filter(Boolean);
+    const pool = configured?.length ? configured : defaultHintPrompts;
+    return [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [blinko.config.value?.aiHintPrompts]);
 
   return (
     <div
@@ -151,18 +149,18 @@ const AIPage = observer(() => {
               transition={{ delay: 0.1, duration: 0.3 }}
               className='flex gap-2 mt-4 flex-wrap justify-center px-4'
             >
-              {hintPrompts.map((key) => (
+              {hintPrompts.map((prompt) => (
                 <Button
                   size={isPc ? 'md' : 'sm'}
                   onPress={() => {
-                    aiStore.newChatWithSuggestion(t(key))
+                    aiStore.newChatWithSuggestion(prompt)
                   }}
                   className='w-fit'
-                  key={key}
+                  key={prompt}
                   radius='full'
                   variant='flat'
                 >
-                  {t(key)}
+                  {prompt}
                 </Button>
               ))}
             </motion.div>

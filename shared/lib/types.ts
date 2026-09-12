@@ -87,6 +87,11 @@ export const ZConfigKey = z.union([
   z.literal('embeddingTopK'),
   z.literal('embeddingScore'),
   z.literal('excludeEmbeddingTagId'),
+  // CUSTOM-JOURNAL: newline-separated list of starter prompts shown (3
+  // picked at random) on the AI tab when not chatting -- was a hardcoded
+  // array of i18n keys in app/src/pages/ai.tsx, moved here so the user can
+  // add/edit/remove hints from AI Settings without a code change/redeploy.
+  z.literal('aiHintPrompts'),
   z.literal('rerankTopK'),
   z.literal('rerankScore'),
   z.literal('isAllowRegister'),
@@ -181,6 +186,7 @@ export const ZConfigSchema = z.object({
   embeddingTopK: z.number().nullable().optional(),
   embeddingScore: z.number().nullable().optional(),
   excludeEmbeddingTagId: z.number().nullable().optional(),
+  aiHintPrompts: z.string().nullable().optional(),
   rerankTopK: z.number().nullable().optional(),
   rerankScore: z.number().nullable().optional(),
   language: z.any().optional(),

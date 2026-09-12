@@ -323,9 +323,15 @@ export const syncNoteTagsFromContent = async (noteId: number, accountId: number,
 
   const handleAddTags = async (nodes: TagTreeNode[], parentTag: Prisma.tagCreateManyInput | undefined) => {
     for (const i of nodes) {
-      let hasTag = await prisma.tag.findFirst({ where: { name: i.name, parent: parentTag?.id ?? 0, accountId } });
+      const trimmedName = i.name.trim();
+      // CUSTOM-JOURNAL: case-insensitive + trimmed match -- was a plain
+      // equality check, so "Family"/"family"/"family " (manual creation and
+      // AI-suggested tags alike) all became distinct duplicate tag rows.
+      // Reuse whatever casing the tag already has; only fall back to
+      // creating with the as-given casing if genuinely new.
+      let hasTag = await prisma.tag.findFirst({ where: { name: { equals: trimmedName, mode: 'insensitive' }, parent: parentTag?.id ?? 0, accountId } });
       if (!hasTag) {
-        hasTag = await prisma.tag.create({ data: { name: i.name, parent: parentTag?.id ?? 0, accountId } });
+        hasTag = await prisma.tag.create({ data: { name: trimmedName, parent: parentTag?.id ?? 0, accountId } });
       }
       // CUSTOM-JOURNAL: upsert, not findFirst-then-create -- the previous
       // check-then-act had a TOCTOU race (two overlapping syncNoteTagsFromContent

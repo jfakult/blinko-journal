@@ -6,7 +6,7 @@ import { BlinkoStore } from "@/store/blinkoStore";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { RangeCalendar } from "@heroui/react";
-import { today, getLocalTimeZone } from "@internationalized/date";
+import { today, getLocalTimeZone, parseAbsoluteToLocal } from "@internationalized/date";
 import dayjs from "@/lib/dayjs";
 import TagSelector from "@/components/Common/TagSelector";
 import { api } from "@/lib/trpc";
@@ -86,6 +86,32 @@ export default function FilterPop() {
     };
   };
 
+  const buildSortValue = (sortField: string, orderBy: string, moodAxisId: number | null) => {
+    return moodAxisId != null ? `${sortField}:${orderBy}:${moodAxisId}` : `${sortField}:${orderBy}`;
+  };
+
+  // CUSTOM-JOURNAL: seed every local control from the live filter config
+  // whenever the modal opens -- previously each field always started from a
+  // hardcoded default (null/"all"/""/DATE_DESC) regardless of what was
+  // actually active (e.g. a tag filter applied via clicking a tag chip on a
+  // card), so reopening this popup never reflected reality. Now both
+  // directions agree: apply a filter anywhere -> it shows as active here too.
+  useEffect(() => {
+    if (!isOpen) return;
+    const cfg = blinkoStore.noteListFilterConfig;
+    setDateRange({
+      start: cfg.startDate ? parseAbsoluteToLocal(new Date(cfg.startDate).toISOString()) : null,
+      end: cfg.endDate ? parseAbsoluteToLocal(new Date(cfg.endDate).toISOString()) : null,
+    });
+    setTagStatus(cfg.withoutTag ? 'without' : (cfg.tagId != null ? 'with' : 'all'));
+    setSelectedTag(cfg.tagId != null ? String(cfg.tagId) : null);
+    setSelectedCondition(
+      cfg.withLink ? 'hasLink' : cfg.withFile ? 'hasFile' : cfg.isShare ? 'isShare' : cfg.hasTodo ? 'hasTodo' : ''
+    );
+    setSortValue(buildSortValue(cfg.sortField, cfg.orderBy, cfg.moodAxisId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
   const handleApplyFilter = () => {
     blinkoStore.noteListFilterConfig = {
       ...blinkoStore.noteListFilterConfig,
@@ -149,6 +175,26 @@ export default function FilterPop() {
             {t('filter-settings')}
           </ModalHeader>
           <ModalBody className="pb-4">
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-medium flex items-center gap-2">
+              <Icon icon="solar:sort-vertical-bold" width="20" height="20" />
+              {t('sort')}
+            </div>
+            <Select
+              selectedKeys={[sortValue]}
+              onChange={(e) => e.target.value && setSortValue(e.target.value)}
+              className="w-full"
+              classNames={{ trigger: "h-12" }}
+              disallowEmptySelection
+            >
+              {sortOptions.map(option => (
+                <SelectItem key={option.value} textValue={option.label}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </Select>
+          </div>
+
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium flex items-center gap-2">
               <Icon icon="solar:sort-by-time-broken" width="24" height="24" />
@@ -284,7 +330,7 @@ export default function FilterPop() {
           <div className="flex flex-col gap-2">
             <div className="text-sm font-medium flex items-center gap-2">
               <Icon icon="material-symbols:conditions" width="20" height="20" />
-              {t('additional-conditions')}
+              {t('other-filters')}
             </div>
             <RadioGroup
               value={selectedCondition || ""}
@@ -297,26 +343,6 @@ export default function FilterPop() {
                 </Radio>
               ))}
             </RadioGroup>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <div className="text-sm font-medium flex items-center gap-2">
-              <Icon icon="solar:sort-vertical-bold" width="20" height="20" />
-              {t('sort')}
-            </div>
-            <Select
-              selectedKeys={[sortValue]}
-              onChange={(e) => e.target.value && setSortValue(e.target.value)}
-              className="w-full"
-              classNames={{ trigger: "h-12" }}
-              disallowEmptySelection
-            >
-              {sortOptions.map(option => (
-                <SelectItem key={option.value} textValue={option.label}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </Select>
           </div>
           </ModalBody>
           <ModalFooter className="flex gap-2">

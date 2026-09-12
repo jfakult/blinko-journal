@@ -7,6 +7,9 @@ import { requestMicrophonePermission, checkMicrophonePermission } from "@/lib/ta
 import { Button, Card, CardBody } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { playStartChime } from "@/lib/sound";
+import { BlinkoStore } from "@/store/blinkoStore";
+import { ToastPlugin } from "@/store/module/Toast/Toast";
+import i18n from "@/lib/i18n";
 
 interface MyAudioRecorderProps {
   onComplete?: (file: File) => void;
@@ -408,6 +411,24 @@ export const ShowAudioDialog = ((onComplete: (file: File) => void) => {
     content: <MyAudioRecorder onComplete={(file) => {
       onComplete(file)
       RootStore.Get(DialogStandaloneStore).close();
+
+      // CUSTOM-JOURNAL: transcription runs fire-and-forget on the server
+      // (server/routerTrpc/note.ts's create path), with no websocket/polling
+      // telling the client when it lands -- previously the note just sat
+      // there with no transcript and no indication anything was happening
+      // until a manual reload. Give a loading cue immediately, and nudge a
+      // list refetch after a delay generous enough for a short voice memo to
+      // finish transcribing so the text shows up without the user having to
+      // remember to reload. Best-effort: doesn't track real completion.
+      const blinko = RootStore.Get(BlinkoStore);
+      if (blinko.config.value?.voiceModelId) {
+        const toast = RootStore.Get(ToastPlugin);
+        const toastId = toast.loading(i18n.t('transcribing-audio'));
+        setTimeout(() => {
+          toast.dismiss(toastId);
+          blinko.forceQuery++;
+        }, 20000);
+      }
     }} />
   })
 })

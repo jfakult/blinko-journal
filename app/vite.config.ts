@@ -25,13 +25,16 @@ export default defineConfig({
         registerType: 'autoUpdate',
         includeAssets: ['icons/*.png'],
         // CUSTOM-JOURNAL: this is the manifest actually used by the
-        // installed/production PWA (vite-plugin-pwa generates and injects
-        // its own manifest at build time, superseding public/manifest.json
-        // -- keep both in sync, see that file's own CUSTOM-JOURNAL note).
-        // Was still upstream's literal "Blinko" name + Blinko's own icon
-        // set + a plain white theme_color, which is why installing this app
-        // showed "Blinko" with Blinko's icons and a blank white title bar
-        // regardless of what public/manifest.json said.
+        // installed/production PWA, generated at build time by this plugin
+        // as manifest.webmanifest -- app/index.html's <link rel="manifest">
+        // points there directly now. (Previously there was also a static
+        // app/public/manifest.json with duplicate content that index.html
+        // actually linked to instead -- deleted, since having two manifest
+        // sources that must be kept in sync by hand is exactly the kind of
+        // setup that lets branding drift or silently revert.) Content here
+        // was still upstream's literal "Blinko" name + Blinko's own icon
+        // set + a plain white theme_color at one point, which is why
+        // installing this app showed "Blinko" with a blank white title bar.
         manifest: {
           name: 'Journal',
           short_name: 'Journal',

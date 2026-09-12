@@ -330,9 +330,9 @@ const handleAddTag = () => {
 }
 
 // CUSTOM-JOURNAL: "View Sentiments" dialog -- shows the mood-axis scores the
-// post-processing pipeline (AiModelFactory.MoodAgent, see aiServer/index.ts's
-// scoreMood) already generated for this note, if any. Fetches the axis
-// definitions (label text, bipolar vs unipolar) fresh each open since they
+// post-processing pipeline (see aiServer/index.ts's scoreMood) already
+// generated for this note, if any. Fetches the axis definitions (label
+// text, bipolar vs unipolar) fresh each open since they
 // can be edited/added in AI Settings at any time.
 const ViewSentimentsDialogContent = observer(() => {
   const blinko = RootStore.Get(BlinkoStore)

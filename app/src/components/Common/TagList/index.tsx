@@ -40,9 +40,24 @@ export const TagList = observer(({ noteId, tags, maxVisible = 3, createdAt, upda
   const visiblePaths = uniquePaths.slice(0, maxVisible);
   const overflowPaths = uniquePaths.slice(maxVisible);
 
+  // CUSTOM-JOURNAL: buildHashTagTreeFromDb already computes each node's full
+  // path (node.metadata.path) alongside its real DB id -- flatten that back
+  // out into a path->id lookup so goToTag can filter by tagId instead of a
+  // #hashtag text search.
+  const flattenWithId = (node: any): { path: string; id: number }[] => [
+    { path: node.metadata.path, id: node.id },
+    ...((node.children || []) as any[]).flatMap(flattenWithId),
+  ];
+  const pathToId = new Map(tagTree.flatMap(flattenWithId).map(({ path, id }) => [path, id]));
+
   const goToTag = (path: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    navigate(`/?path=all&searchText=${encodeURIComponent('#' + path)}`);
+    const tagId = pathToId.get(path);
+    if (tagId != null) {
+      navigate(`/?path=all&tagId=${tagId}`);
+    } else {
+      navigate(`/?path=all&searchText=${encodeURIComponent('#' + path)}`);
+    }
     blinko.forceQuery++;
   };
 
