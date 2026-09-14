@@ -17,40 +17,6 @@ interface LLMConfig {
   apiVersion?: any;
 }
 
-// CUSTOM-JOURNAL: forces Ollama's `"think": false` request-body flag onto
-// every /api/chat and /api/generate call. Hybrid-reasoning models (Qwen3/
-// Qwen3.5, etc.) default to an internal "thinking" pass before answering --
-// for this app's fast, frequent, small background calls (tag suggestion,
-// mood scoring) that's pure latency with no benefit, and was directly
-// responsible for multi-minute-long post-processing calls. A prompt-level
-// request to skip thinking (e.g. appending "/no_think", Qwen3's own
-// documented toggle) helps but is still just a polite ask the model can
-// ignore -- `think: false` is a protocol-level flag Ollama added
-// specifically for this, enforced by Ollama itself regardless of what the
-// model does with the prompt text, so it's the actually-reliable fix.
-// ollama-ai-provider (the npm package used below) doesn't expose this as a
-// typed option as of the pinned version, so this injects it directly into
-// the outgoing request body at the fetch layer instead of depending on
-// provider-package support for a specific Ollama server feature.
-const withOllamaThinkingDisabled = (baseFetch: typeof fetch): typeof fetch => {
-  return (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-    const isChatOrGenerate = /\/api\/(chat|generate)(\?|$)/.test(url);
-    if (!isChatOrGenerate || !init?.body || typeof init.body !== 'string') {
-      return baseFetch(input, init);
-    }
-    try {
-      const body = JSON.parse(init.body);
-      body.think = false;
-      return baseFetch(input, { ...init, body: JSON.stringify(body) });
-    } catch {
-      // Not JSON (or unexpected shape) -- pass through untouched rather
-      // than risk sending a malformed request.
-      return baseFetch(input, init);
-    }
-  }) as typeof fetch;
-};
-
 export class LLMProvider extends BaseProvider {
   async getLanguageModel(config: LLMConfig): Promise<LanguageModelV1> {
     await this.ensureInitialized();
@@ -79,7 +45,7 @@ export class LLMProvider extends BaseProvider {
       case 'ollama':
         return createOllama({
           baseURL: config.baseURL?.trim().replace(/\/api$/, '') + '/api' || undefined,
-          fetch: withOllamaThinkingDisabled(this.proxiedFetch || fetch)
+          fetch: this.proxiedFetch
         }).languageModel(config.modelKey);
 
       case 'deepseek':

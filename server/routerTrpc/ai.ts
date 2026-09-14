@@ -8,7 +8,6 @@ import { AiModelFactory } from '@server/aiServer/aiModelFactory';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
 import { TagAuditJob } from '../jobs/tagAuditJob';
 import { moodAxisSchema, aiTaskLogSchema, aiTaskLogDetailSchema } from '@shared/lib/prismaZodType';
-import { getAllPathTags } from '@server/lib/helper';
 import { ModelCapabilities } from '@server/aiServer/types';
 import { aiProviders, aiModels } from '@shared/lib/prismaZodType';
 import { fetchWithProxy } from '@server/lib/proxy';
@@ -200,19 +199,31 @@ export const aiRouter = router({
         yield chunk
       }
     }),
-  autoTag: authProcedure
+  // CUSTOM-JOURNAL: replaces the old autoTag procedure (raw TagAgent.generate()
+  // call using the upstream hardcoded-existing-tag-list/slash-hierarchy
+  // prompt convention, returning suggestions for a manual pick-and-insert
+  // dialog) as the right-click menu's "Re-run AI analysis" action. This
+  // calls the same real pipeline used everywhere else in this fork
+  // (AiService.suggestTags/appendTagsIfUnchanged/scoreMood) so tags/mood are
+  // auto-applied exactly like a live post-processing pass, not a separate,
+  // parallel, unfixed code path.
+  reanalyzeNote: authProcedure
     .input(z.object({
-      content: z.string()
+      noteId: z.number()
     }))
-    .mutation(async function ({ input }) {
-      const config = await AiModelFactory.globalConfig();
-      const { content } = input
-      const tagAgent = await AiModelFactory.TagAgent(config.aiTagsPrompt || undefined);
-      const tags = await getAllPathTags();
-      const result = await tagAgent.generate(
-        `Existing tags list: [${tags.join(', ')}]\nNote content: ${content}\nPlease suggest appropriate tags for this content. Include full hierarchical paths for tags like #Parent/Child instead of just #Child.`
-      )
-      return result?.text?.trim().split(',').map(tag => tag.trim()).filter(Boolean) ?? []
+    .mutation(async ({ input, ctx }) => {
+      return await AiService.reanalyzeNote({ noteId: input.noteId, ctx });
+    }),
+  // CUSTOM-JOURNAL: standalone "Transcribe" action -- transcribeAndAppend
+  // already existed (called internally from note create/update), just never
+  // had its own callable endpoint for an explicit "transcribe this note's
+  // audio again" click.
+  transcribeNote: authProcedure
+    .input(z.object({
+      noteId: z.number()
+    }))
+    .mutation(async ({ input, ctx }) => {
+      return await AiService.transcribeAndAppend({ noteId: input.noteId, accountId: Number(ctx.id) });
     }),
   autoEmoji: authProcedure
     .input(z.object({

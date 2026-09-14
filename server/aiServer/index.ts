@@ -491,15 +491,15 @@ export class AiService {
     );
 
     // CUSTOM-JOURNAL: spells out each axis's id explicitly (not just its
-    // label), and whether it's always-include (bipolar) or only-if-present
-    // (unipolar) -- see moodSystemPrompt's comment for why.
-    const hasBipolarAxis = axes.some((axis) => !!axis.negativeLabel);
+    // label) and its own include/scoring instructions -- see
+    // moodSystemPrompt's comment for why the Rules section just points back
+    // at these instead of re-describing bipolar-vs-unipolar itself.
     const axesDescription = axes
       .map((axis) => axis.negativeLabel
-        ? `${axis.id}: ${axis.positiveLabel}/${axis.negativeLabel} (bipolar -- always include; 0 = fully ${axis.negativeLabel}, 100 = fully ${axis.positiveLabel}, 50 = neutral/mixed)`
-        : `${axis.id}: ${axis.positiveLabel} (only include if genuinely present above 0; omit entirely if absent from the entry)`)
+        ? `${axis.id}: ${axis.positiveLabel} vs ${axis.negativeLabel} -- always include. Score 0-100: 0 = fully ${axis.negativeLabel}, 100 = fully ${axis.positiveLabel}, 50 = neutral or mixed.`
+        : `${axis.id}: ${axis.positiveLabel} -- only include if this feeling is genuinely present in the entry; skip it entirely if not.`)
       .join('\n');
-    const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription, hasBipolarAxis);
+    const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
     const input = `Entry content:\n${content}`;
     // CUSTOM-JOURNAL: logged separately from `input` (which stays just the
     // entry content, actually passed to generateObject/generateText's
@@ -907,6 +907,76 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       console.error('Error in post-processing note:', error);
       await logAiTaskFinish(taskLogId, 'error', error.message || 'Unknown error');
       return { success: false, message: error.message || 'Unknown error' };
+    }
+  }
+
+  // CUSTOM-JOURNAL: "Re-run AI analysis" -- on-demand, per-note version of
+  // the tags+mood pipeline, triggered from the right-click menu (previously
+  // that menu item, "AI Tag," actually called the old autoTag tRPC
+  // procedure: a raw TagAgent.generate() call using the upstream
+  // hardcoded-existing-tag-list/slash-hierarchy prompt convention and a
+  // manual pick-and-insert dialog -- none of the fixes made to suggestTags/
+  // scoreMood/tag-application this project ever applied to it, and it never
+  // touched mood at all). This instead reuses the same real pipeline
+  // tagAuditJob.ts's backfill and postProcessNote use: transcribe any
+  // pending audio first, then suggest+apply tags (auto-applied via the
+  // normal CAS write + relational sync, not a manual picker), then score
+  // mood. Deliberately does NOT gate on config.aiPostProcessingMode the way
+  // postProcessNote does -- a user explicitly asking to re-run analysis on
+  // one note wants the real tags+mood pipeline regardless of whatever the
+  // global post-processing mode happens to be set to.
+  static async reanalyzeNote({ noteId, ctx }: { noteId: number; ctx: Context }) {
+    const note = await prisma.notes.findUnique({
+      where: { id: noteId, accountId: Number(ctx.id) },
+      select: { content: true, accountId: true, updatedAt: true },
+    });
+    if (!note) throw new Error('Note not found');
+
+    const taskLogId = await logAiTaskStart({ accountId: note.accountId, taskType: 'postProcess', noteId, message: 'Manual re-run AI analysis' });
+    try {
+      let noteContent = note.content;
+      let noteUpdatedAt = note.updatedAt;
+      if (await AiService.hasPendingAudioTranscription(noteId)) {
+        await AiService.transcribeAndAppend({ noteId, accountId: note.accountId! });
+        const refreshed = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, updatedAt: true } });
+        noteContent = refreshed?.content ?? note.content;
+        noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
+      }
+
+      try {
+        const suggestedTags = await AiService.suggestTags(noteContent, taskLogId);
+        await AiService.appendTagsIfUnchanged({
+          noteId,
+          accountId: note.accountId!,
+          expectedContent: noteContent,
+          expectedUpdatedAt: noteUpdatedAt,
+          tags: suggestedTags,
+        });
+      } catch (error) {
+        console.error('Error re-running tags:', error);
+      }
+
+      const moodScores = await AiService.scoreMood(noteContent, taskLogId);
+      // CUSTOM-JOURNAL: preserve updatedAt -- same reasoning as
+      // postProcessNote/tagAuditJob: this is an AI bookkeeping write, not a
+      // user edit, and shouldn't bump "recently updated" sort. Safe to reuse
+      // noteUpdatedAt here even after a successful appendTagsIfUnchanged CAS
+      // write above -- that write itself preserves updatedAt rather than
+      // bumping it, so the DB's current value still matches.
+      await prisma.notes.update({
+        where: { id: noteId },
+        data: {
+          aiTaggedAt: new Date(),
+          updatedAt: noteUpdatedAt,
+          ...(Object.keys(moodScores).length > 0 && { moodScores }),
+        },
+      });
+
+      await logAiTaskFinish(taskLogId, 'success', 'Manual re-run AI analysis completed');
+      return { success: true };
+    } catch (error: any) {
+      await logAiTaskFinish(taskLogId, 'error', error?.message || String(error));
+      throw error;
     }
   }
 

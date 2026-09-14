@@ -549,15 +549,17 @@ export class AiModelFactory {
       // fallback used only when no config.aiTagsPrompt is set (this journal
       // always seeds one via prisma/seed.ts's journalTagsPrompt, so in
       // practice this path is a safety net for a fresh DB, not what actually
-      // runs) -- kept in sync with that seeded prompt's conventions regardless.
+      // runs) -- kept in sync with that seeded prompt's conventions regardless,
+      // including the trailing "Answer briefly" (replaced an earlier
+      // "/no_think" + Ollama think:false approach -- simple, direct phrasing
+      // tested to work as well or better, without needing a model-specific
+      // toggle or extra request-layer plumbing).
       return `You are a precise label classification expert, and you will generate precisely matched content labels based on the content. Rules:
       1. **Core Selection Principle**: Select 3 to 6 tags that are most relevant to the content -- people, places, feelings, or the specific topic/thing being discussed. Only tag what's actually present in the content; don't invent a tag for a category just to cover it.
       2. **Tag Format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #javascript, #web-development). Never use slashes or any other category-prefix/hierarchy structure. A concrete noun or subject from the content is just as valid a tag as an emotion or person.
-      3. **Language**: match the language of the content.
-      4. **Response Format Specification**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript.
-      5. **Example**: For JavaScript content related to web development, a reference response could be #JavaScript,#web-development,#frontend,#browser-compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly.
+      3. **Response Format**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript. Example: #JavaScript,#web-development,#frontend
 
-      /no_think`;
+      Answer briefly`;
     },
     'BlinkoTag',
     { useModelId: 'postProcessing' },
@@ -581,51 +583,51 @@ export class AiModelFactory {
   // instead of silently dropping any axis the model omitted from free text.
   // This is still just the descriptive/calibration half of that prompt --
   // the schema itself enforces the response shape.
-  // CUSTOM-JOURNAL: rewritten from "score every dimension, every time" to
-  // "think through each one and only report the ones that actually apply."
-  // Forcing a number onto all 9 axes on every entry was itself producing bad
-  // scores -- e.g. an "anxiety" axis pinned to 100 on an entry that never
-  // mentions anxiety at all, because the model had to put *something* there.
-  // Letting it skip clearly-irrelevant unipolar emotions reduces that
-  // pressure and lets it spend its reasoning on the axes that matter. The
-  // bipolar valence axis is the one exception -- every entry has *some*
-  // overall tone, and 0 there is a meaningful endpoint (fully negative), not
-  // "absent," so it's always expected. axesDescription now spells out each
-  // axis's id explicitly (not just its label) so the model can't lose track
-  // of which id maps to which dimension -- previously that mapping relied on
-  // list order matching schema key order, which the text-only fallback tier
-  // in particular had no way to verify.
-  // CUSTOM-JOURNAL: hasBipolarAxis controls whether the bipolar-handling
-  // rule appears at all. It used to be unconditional, describing bipolar
-  // axes as a general possibility -- but after the valence-axis split (see
-  // prisma/seed.ts's 2026-09-16-split-valence-axis migration), a stock
-  // install has *zero* bipolar axes: every axis is unipolar, so that rule
-  // described a case that could never actually occur. A live trace showed
-  // exactly the failure mode you'd expect from that: the model getting
-  // stuck re-litigating "could axis 2-9 be bipolar? ... no wait ..." over a
-  // distinction that didn't apply to any axis in front of it, burning
-  // through its entire thinking budget before ever writing the JSON object
-  // (a bigger, more ambiguous task than tagging, which is why it failed
-  // here specifically). Dropping the inapplicable rule removes the ambiguity
-  // at the source, on top of the /no_think + think:false fixes that stop
-  // the reasoning pass from running at all.
-  static moodSystemPrompt(axesDescription: string, hasBipolarAxis: boolean): string {
-    const bipolarRule = hasBipolarAxis
-      ? `1. Bipolar dimensions (marked "bipolar -- always include") must always appear in your response: 0 = fully the negative label, 100 = fully the positive label, 50 = neutral or mixed. Every entry has some overall tone, so never omit these.\n2. Every other (unipolar) dimension should only appear in your response if that specific emotion is genuinely expressed or clearly implied in the entry. If it isn't really present, leave its id out of your response entirely -- do not include it with a score of 0. Most entries will only have a small handful of genuinely relevant unipolar dimensions, not all of them.`
-      : `1. Only include a dimension in your response if that specific emotion is genuinely expressed or clearly implied in the entry. If it isn't really present, leave its id out of your response entirely -- do not include it with a score of 0. Most entries will only have a small handful of genuinely relevant dimensions, not all of them.`;
+  //
+  // Rewritten twice since: (1) from "score every dimension, every time" to
+  // "only report the ones that actually apply" -- forcing a number onto
+  // every axis on every entry was itself producing bad scores (e.g.
+  // "anxiety" pinned to 100 on an entry that never mentions anxiety, because
+  // the model had to put *something* there). (2) the per-axis instructions
+  // in axesDescription already say whether a given axis is always-include
+  // (bipolar) or only-if-present (unipolar) -- an earlier version of the
+  // Rules section *also* re-explained that same bipolar/unipolar split in
+  // the abstract, branching its wording on whether any bipolar axis
+  // currently existed. That duplication was a real, observed problem: with
+  // a stock install (zero bipolar axes after the valence-axis split, see
+  // prisma/seed.ts's 2026-09-16-split-valence-axis migration), the model
+  // got stuck re-litigating "could this axis actually be bipolar?" against
+  // a distinction the Rules section raised but nothing in front of it
+  // satisfied, burning its whole response budget without ever producing
+  // JSON. Rules now just point back at each axis's own instructions instead
+  // of re-describing the bipolar/unipolar split itself, so there's nothing
+  // abstract left to get stuck on regardless of how many bipolar axes
+  // exist. "Answer briefly" replaces an earlier "/no_think" + Ollama
+  // think:false approach -- simpler, and tested to work as well or better.
+  static moodSystemPrompt(axesDescription: string): string {
+    return `You are an emotional-tone analysis expert for a personal journal. Below is a list of mood dimensions, each with its own instructions for when and how to score it.
 
-    return `You are an emotional-tone analysis expert for a personal voice journal. Below is a numbered list of mood dimensions. Think through each one individually and decide whether it's actually relevant to this entry before scoring anything.
-
-Mood dimensions (id: description):
+Mood dimensions:
 ${axesDescription}
 
 Rules:
-${bipolarRule}
-3. For whatever you do include, use the full range thoughtfully: a mild, passing feeling scores low (roughly 10-30), a clearly present but not overwhelming feeling scores in the middle (roughly 40-70), and only a genuinely intense, dominant feeling scores high (80-100). Don't default to extremes (0 or 100) out of habit -- most real feelings are somewhere in between.
-4. Base every score only on what's actually expressed or implied in the entry content, never on assumptions beyond the text.
-5. Respond with a JSON object keyed by each dimension's id (as a string, exactly as given above), mapping to its 1-100 score. ${hasBipolarAxis ? 'Include only the ids described by rules 1-2.' : 'Include only the ids described by rule 1.'}
+1. Follow each dimension's own instructions above to decide whether to include it -- most say to only include it if genuinely present in the entry.
+2. When you do include a dimension, use the full range thoughtfully: a mild, passing feeling scores low (1-3), a clearly present but not overwhelming feeling scores mid-range (4-7), and only a genuinely intense, dominant feeling scores high (8-10). Don't default to 0 or 10 out of habit.
+3. Base every score only on what the entry actually expresses or implies, never on assumptions beyond the text.
+4. Respond with a JSON object keyed by each dimension's id (as a string, exactly as given above), mapping to its score. Leave out any dimension its own instructions say to skip.
 
-/no_think`;
+Example: if "curiosity" is present but mild, include its id with a low-to-mid score like 25. If "boredom" isn't expressed at all, leave its id out of the response entirely.
+
+Sample output:
+{
+  "curiosity": 3,
+  "excitement": 8,
+  "anger": 0,
+  "joy": 7,
+  "positivity": 7
+}
+
+Answer briefly`;
   }
 
   static RelatedNotesAgent = AiModelFactory.#createAgentFactory(

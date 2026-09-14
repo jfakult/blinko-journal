@@ -310,28 +310,25 @@ async function seedDefaultAiConfig() {
   // forceSetConfigOnce (not setConfigIfMissing) so an already-seeded install
   // actually picks up prompt-text changes -- see forceSetConfigOnce's
   // comment above. Bump the migration id any time this text changes again.
-  // CUSTOM-JOURNAL: trailing "/no_think" is Qwen3/Qwen3.5's own documented
-  // toggle to skip its internal reasoning pass -- confirmed working in
-  // testing, cut a call's output substantially. It's a request the model
-  // can still choose to ignore, though, which is why LLMProvider.ts's
-  // 'ollama' case *also* forces Ollama's own `think: false` request flag on
-  // every call -- that one's enforced by Ollama itself regardless of the
-  // model's cooperation, so it's the actually-reliable half of this; this
-  // suffix is just cheap defense-in-depth on top of it. Harmless for
-  // non-Qwen models too -- it's inert trailing text they simply won't
-  // recognize as a special token.
+  // CUSTOM-JOURNAL: trailing "Answer briefly" replaces an earlier attempt at
+  // this same problem (slow, multi-minute post-processing calls from
+  // hybrid-reasoning models like Qwen3/3.5 over-"thinking" a simple
+  // tagging task) that used a "/no_think" prompt suffix plus Ollama's
+  // `think: false` request flag (LLMProvider.ts). Both got pulled after
+  // testing showed this simpler, direct phrasing works as well or better,
+  // without needing a model-specific toggle or extra request-layer
+  // plumbing. Also dropped the old "avoid generic note-taking tags" /
+  // "match the entry's language" rules -- simplification, not an oversight.
   const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the specific topic/thing being discussed. Rules:
-1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure. A concrete noun or subject from the entry (e.g. #journal, #website, #coffee, #running) is just as valid a tag as an emotion or person.
+1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure. A concrete noun or subject from the entry is just as valid a tag as an emotion or person.
 2. **Only tag what's actually present**: do not invent a tag for a category (person, place, occasion, etc.) just to cover it -- if the entry names no person, don't produce a people-ish tag; if it mentions no place, don't produce a place-ish tag. Every tag must be clearly grounded in what the entry actually says.
-3. **Avoid generic note-taking tags**: do NOT use tags like #todo, #idea, #project, #meeting unless the entry is genuinely about work — this is a personal journal, not a notes app.
-4. **Language**: match the language of the entry.
-5. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #mom,#home,#grateful,#roadtrip
+3. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #mom,#home,#grateful,#roadtrip
 
-/no_think`;
+Answer briefly`;
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
-  await forceSetConfigOnce('2026-09-17-no-think-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
+  await forceSetConfigOnce('2026-09-18-answer-briefly-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
 
   // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
   // entry's date should read as "when I wrote this," not "when it was last

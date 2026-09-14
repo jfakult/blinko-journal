@@ -10,7 +10,6 @@ import { RootStore } from "@/store";
 import { DialogStore } from "@/store/module/Dialog";
 import { BlinkoEditor } from "../BlinkoEditor";
 import { useEffect, useState } from "react";
-import { AiStore } from "@/store/aiStore";
 import { parseAbsoluteToLocal } from "@internationalized/date";
 import i18n from "@/lib/i18n";
 import { BlinkoShareDialog } from "../BlinkoShareDialog";
@@ -285,15 +284,53 @@ const handleRestore = () => {
   })
 }
 
-const handleAITag = () => {
+// CUSTOM-JOURNAL: transcribes any pending audio attachment on this note
+// on demand -- transcribeAndAppend already existed (called internally from
+// note create/update), this is just its first direct menu entry point,
+// separate from the combined "Re-run AI analysis" action below.
+const handleTranscribe = async () => {
   const blinko = RootStore.Get(BlinkoStore)
-  const aiStore = RootStore.Get(AiStore)
-  aiStore.autoTag.call(blinko.curSelectedNote?.id!, blinko.curSelectedNote?.content!)
+  const toast = RootStore.Get(ToastPlugin)
+  const noteId = blinko.curSelectedNote?.id
+  if (!noteId) return
+  try {
+    toast.loading(i18n.t('transcribing-audio'))
+    await api.ai.transcribeNote.mutate({ noteId })
+    toast.dismiss()
+    blinko.updateTicker++
+  } catch (error: any) {
+    toast.dismiss()
+    toast.error(error?.message || i18n.t('operation-failed'))
+  }
+}
+
+// CUSTOM-JOURNAL: replaces the old handleAITag (aiStore.autoTag -- a
+// separate, unfixed code path: raw TagAgent.generate() with the upstream
+// hardcoded-existing-tag-list/slash-hierarchy prompt, returning suggestions
+// for a manual pick-and-insert dialog, no mood scoring at all). This calls
+// the real pipeline (transcribe pending audio, suggest+auto-apply tags,
+// score mood) via AiService.reanalyzeNote -- tags/mood land automatically,
+// same as a live post-processing pass, no picker dialog needed.
+const handleReanalyze = async () => {
+  const blinko = RootStore.Get(BlinkoStore)
+  const toast = RootStore.Get(ToastPlugin)
+  const noteId = blinko.curSelectedNote?.id
+  if (!noteId) return
+  try {
+    toast.loading(i18n.t('thinking'))
+    await api.ai.reanalyzeNote.mutate({ noteId })
+    toast.dismiss()
+    blinko.updateTicker++
+  } catch (error: any) {
+    toast.dismiss()
+    toast.error(error?.message || i18n.t('operation-failed'))
+  }
 }
 
 // CUSTOM-JOURNAL: manual "add/remove tags on this entry" dialog, distinct
-// from AITagItem above (which asks the AI to suggest tags) -- opens the
-// shared TagPicker scoped to whichever note the menu was triggered on.
+// from ReanalyzeItem above (which asks the AI to suggest and auto-apply
+// tags) -- opens the shared TagPicker scoped to whichever note the menu was
+// triggered on.
 const AddTagDialogContent = observer(() => {
   const blinko = RootStore.Get(BlinkoStore)
   const note = blinko.curSelectedNote
@@ -471,12 +508,22 @@ export const RestoreItem = observer(() => {
   </div>
 })
 
-export const AITagItem = observer(() => {
+export const ReanalyzeItem = observer(() => {
   const { t } = useTranslation();
   return (
     <div className="flex items-start gap-2">
       <Icon icon="majesticons:tag-line" width="20" height="20" />
-      <div>{t('ai-tag')}</div>
+      <div>{t('re-run-ai-analysis')}</div>
+    </div>
+  );
+});
+
+export const TranscribeItem = observer(() => {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-start gap-2">
+      <Icon icon="mdi:microphone-outline" width="20" height="20" />
+      <div>{t('transcribe')}</div>
     </div>
   );
 });
@@ -602,8 +649,14 @@ export const BlinkoRightClickMenu = observer(() => {
     </ContextMenuItem>
 
     {blinko.config.value?.mainModelId ? (
-      <ContextMenuItem onClick={handleAITag}>
-        <AITagItem />
+      <ContextMenuItem onClick={handleTranscribe}>
+        <TranscribeItem />
+      </ContextMenuItem>
+    ) : <></>}
+
+    {blinko.config.value?.mainModelId ? (
+      <ContextMenuItem onClick={handleReanalyze}>
+        <ReanalyzeItem />
       </ContextMenuItem>
     ) : <></>}
 
@@ -698,8 +751,14 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
       </DropdownItem>
 
       {blinko.config.value?.mainModelId ? (
-        <DropdownItem key="AITagItem" onPress={handleAITag}>
-          <AITagItem />
+        <DropdownItem key="TranscribeItem" onPress={handleTranscribe}>
+          <TranscribeItem />
+        </DropdownItem>
+      ) : <></>}
+
+      {blinko.config.value?.mainModelId ? (
+        <DropdownItem key="ReanalyzeItem" onPress={handleReanalyze}>
+          <ReanalyzeItem />
         </DropdownItem>
       ) : <></>}
 
