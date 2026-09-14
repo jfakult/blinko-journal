@@ -1,5 +1,5 @@
 import { Icon } from '@/components/Common/Iconify/icons';
-import { Popover, PopoverTrigger, PopoverContent } from '@heroui/react';
+import { Modal, ModalContent, ModalHeader, ModalBody } from '@heroui/react';
 import { Note } from '@shared/lib/types';
 import { BlinkoStore } from '@/store/blinkoStore';
 import { useTranslation } from 'react-i18next';
@@ -38,35 +38,46 @@ const RightContent = ({ blinkoItem, t }: { blinkoItem: Note; t: any }) => {
 
 // CUSTOM-JOURNAL: replaces the old "Indexed" icon (hugeicons:ai-beautify,
 // purely decorative, no onClick -- "does nothing" per user report). Shown
-// whenever the note has mood scores; clicking opens a Popover (not the
-// DialogStore modal the right-click menu's "View Sentiments" uses, so this
-// stays a quick glance) with the same SentimentView bars.
+// whenever the note has mood scores; clicking opens a centered Modal (not
+// the DialogStore modal the right-click menu's "View Sentiments" uses, and
+// not an anchored Popover -- an anchored popover's position is derived from
+// the trigger's location, so near a screen edge (this icon sits at the
+// bottom-right of every card) it could render partly off-screen with no way
+// to reposition it back on-screen. Same reasoning as filterPop.tsx's
+// Popover -> Modal conversion.
 const SentimentIcon = ({ blinkoItem }: { blinkoItem: Note }) => {
+  const { t } = useTranslation();
+  const [isOpen, setIsOpen] = useState(false);
   const [axes, setAxes] = useState<moodAxis[] | null>(null);
   const moodScores = blinkoItem?.moodScores as Record<string, number> | null | undefined;
 
   if (!moodScores || Object.keys(moodScores).length === 0) return null;
 
   return (
-    <Popover placement="top" showArrow onOpenChange={(open) => {
-      if (open && !axes) {
-        api.ai.moodAxisList.query().then(setAxes).catch(() => setAxes([]));
-      }
-    }}>
-      <PopoverTrigger>
-        <div className="cursor-pointer">
-          <Icon className="text-desc opacity-70 hover:opacity-100 !transition-all" icon="mdi:emoticon-outline" width="16" height="16" />
-        </div>
-      </PopoverTrigger>
-      <PopoverContent>
-        <div className="p-3 w-[240px]">
-          {axes ? (
-            <SentimentView axes={axes} moodScores={moodScores} />
-          ) : (
-            <div className="flex justify-center py-4"><Icon icon="line-md:loading-twotone-loop" width="20" height="20" /></div>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <>
+      <div
+        className="cursor-pointer"
+        onClick={() => {
+          setIsOpen(true);
+          if (!axes) {
+            api.ai.moodAxisList.query().then(setAxes).catch(() => setAxes([]));
+          }
+        }}
+      >
+        <Icon className="text-desc opacity-70 hover:opacity-100 !transition-all" icon="mdi:emoticon-outline" width="16" height="16" />
+      </div>
+      <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} placement="center" size="sm">
+        <ModalContent>
+          <ModalHeader>{t('view-sentiments')}</ModalHeader>
+          <ModalBody className="pb-6">
+            {axes ? (
+              <SentimentView axes={axes} moodScores={moodScores} />
+            ) : (
+              <div className="flex justify-center py-4"><Icon icon="line-md:loading-twotone-loop" width="20" height="20" /></div>
+            )}
+          </ModalBody>
+        </ModalContent>
+      </Modal>
+    </>
   );
 };

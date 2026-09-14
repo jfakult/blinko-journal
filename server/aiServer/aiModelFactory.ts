@@ -521,18 +521,19 @@ export class AiModelFactory {
         return customPrompt;
       }
       // CUSTOM-JOURNAL: flat, single-word/hyphenated tags -- no slash
-      // hierarchy. This is the generic fallback used only when no
-      // config.aiTagsPrompt is set (this journal always seeds one via
-      // prisma/seed.ts's journalTagsPrompt, so in practice this path is a
-      // safety net for a fresh DB, not what actually runs) -- kept in sync
-      // with that seeded prompt's no-slashes convention regardless.
+      // hierarchy, and no existing-tag list referenced (AiService.suggestTags
+      // no longer passes one in -- tagging should be free and creative, not
+      // anchored to whatever's already been used). This is the generic
+      // fallback used only when no config.aiTagsPrompt is set (this journal
+      // always seeds one via prisma/seed.ts's journalTagsPrompt, so in
+      // practice this path is a safety net for a fresh DB, not what actually
+      // runs) -- kept in sync with that seeded prompt's conventions regardless.
       return `You are a precise label classification expert, and you will generate precisely matched content labels based on the content. Rules:
-      1. **Core Selection Principle**: Select 5 to 8 tags from the existing tag list that are most relevant to the content theme. Carefully compare the key information, technical types, application scenarios, and other elements of the content to ensure that the selected tags accurately reflect the main idea of the content.
-      2. **Language Matching Strategy**: If the language of the existing tags does not match the language of the content, give priority to using the language of the existing tags to maintain the consistency of the language style of the tag system.
-      3. **Tag Format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #javascript, #web-development). Never use slashes or any other category-prefix/hierarchy structure.
-      4. **New Tag Generation Rules**: If there are no tags in the existing list that match the content, create new single-word or hyphenated tags based on the key technologies, business fields, functional features, etc. of the content. The language of the new tags should be consistent with that of the content.
-      5. **Response Format Specification**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript.
-      6. **Example**: For JavaScript content related to web development, a reference response could be #JavaScript,#web-development,#frontend,#browser-compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly.
+      1. **Core Selection Principle**: Select 3 to 6 tags that are most relevant to the content -- people, places, feelings, or the specific topic/thing being discussed. Only tag what's actually present in the content; don't invent a tag for a category just to cover it.
+      2. **Tag Format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #javascript, #web-development). Never use slashes or any other category-prefix/hierarchy structure. A concrete noun or subject from the content is just as valid a tag as an emotion or person.
+      3. **Language**: match the language of the content.
+      4. **Response Format Specification**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript.
+      5. **Example**: For JavaScript content related to web development, a reference response could be #JavaScript,#web-development,#frontend,#browser-compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly.
           `;
     },
     'BlinkoTag',
@@ -557,17 +558,32 @@ export class AiModelFactory {
   // instead of silently dropping any axis the model omitted from free text.
   // This is still just the descriptive/calibration half of that prompt --
   // the schema itself enforces the response shape.
+  // CUSTOM-JOURNAL: rewritten from "score every dimension, every time" to
+  // "think through each one and only report the ones that actually apply."
+  // Forcing a number onto all 9 axes on every entry was itself producing bad
+  // scores -- e.g. an "anxiety" axis pinned to 100 on an entry that never
+  // mentions anxiety at all, because the model had to put *something* there.
+  // Letting it skip clearly-irrelevant unipolar emotions reduces that
+  // pressure and lets it spend its reasoning on the axes that matter. The
+  // bipolar valence axis is the one exception -- every entry has *some*
+  // overall tone, and 0 there is a meaningful endpoint (fully negative), not
+  // "absent," so it's always expected. axesDescription now spells out each
+  // axis's id explicitly (not just its label) so the model can't lose track
+  // of which id maps to which dimension -- previously that mapping relied on
+  // list order matching schema key order, which the text-only fallback tier
+  // in particular had no way to verify.
   static moodSystemPrompt(axesDescription: string): string {
-    return `You are an emotional-tone analysis expert for a personal voice journal. Given the entry content and the mood dimensions listed below, score how strongly each dimension is present, from 0 to 100, for every dimension listed.
+    return `You are an emotional-tone analysis expert for a personal voice journal. Below is a numbered list of mood dimensions. Think through each one individually and decide whether it's actually relevant to this entry before scoring anything.
 
-Mood dimensions:
+Mood dimensions (id: description):
 ${axesDescription}
 
 Rules:
-1. A bipolar dimension is given as "positiveLabel/negativeLabel" (e.g. "positive/negative"). Score 0 = fully negativeLabel, 100 = fully positiveLabel, 50 = neutral/mixed.
-2. A unipolar dimension is given as a single label (e.g. "joy"). Score 0 = that emotion is entirely absent from the entry, 100 = it is maximally present. Most entries will score low on most unipolar emotions -- only score high when the entry clearly expresses that specific emotion.
-3. Base every score only on what's actually expressed or implied in the entry content, never on assumptions beyond the text.
-4. Every dimension listed must be scored -- do not omit any, even if the score is 0.`;
+1. Bipolar dimensions (marked "bipolar -- always include") must always appear in your response: 0 = fully the negative label, 100 = fully the positive label, 50 = neutral or mixed. Every entry has some overall tone, so never omit these.
+2. Every other (unipolar) dimension should only appear in your response if that specific emotion is genuinely expressed or clearly implied in the entry. If it isn't really present, leave its id out of your response entirely -- do not include it with a score of 0. Most entries will only have a small handful of genuinely relevant unipolar dimensions, not all of them.
+3. For whatever you do include, use the full range thoughtfully: a mild, passing feeling scores low (roughly 10-30), a clearly present but not overwhelming feeling scores in the middle (roughly 40-70), and only a genuinely intense, dominant feeling scores high (80-100). Don't default to extremes (0 or 100) out of habit -- most real feelings are somewhere in between.
+4. Base every score only on what's actually expressed or implied in the entry content, never on assumptions beyond the text.
+5. Respond with a JSON object keyed by each dimension's id (as a string, exactly as given above), mapping to its 1-100 score. Include only the ids described by rules 1-2.`;
   }
 
   static RelatedNotesAgent = AiModelFactory.#createAgentFactory(

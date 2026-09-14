@@ -3,7 +3,7 @@ import { prisma } from "../prisma";
 import { NotificationType } from "@shared/lib/prismaZodType";
 import { CreateNotification } from "../routerTrpc/notification";
 import { AiService } from "@server/aiServer";
-import { syncNoteTagsFromContent } from "@server/lib/helper";
+import { syncNoteTagsFromContent, extractHashtags } from "@server/lib/helper";
 import { logAiTaskStart, logAiTaskFinish } from "@server/lib/aiTaskLog";
 
 // CUSTOM-JOURNAL: backfills AI tagging + mood scoring for notes that never
@@ -175,15 +175,38 @@ export class TagAuditJob extends BaseScheduleJob {
       const failedIds = new Set<number>(currentProgress.failedNoteIds || []);
       const results: TagAuditResultRecord[] = [...(currentProgress.results || [])];
 
-      const notes = await prisma.notes.findMany({
+      const untaggedNotes = await prisma.notes.findMany({
         where: { aiTaggedAt: null, isRecycle: false, id: { notIn: Array.from(processedIds) } },
         orderBy: { id: 'asc' },
       });
 
+      // CUSTOM-JOURNAL: repair pass -- notes marked aiTaggedAt (so the query
+      // above skips them entirely) but with zero real tag relations. Root
+      // cause: postProcessNote used to hit a missing-import ReferenceError
+      // inside syncNoteTagsFromContent (fixed earlier this project), but
+      // aiTaggedAt still got set unconditionally afterward regardless of
+      // whether tagging actually succeeded -- so these notes look "done" to
+      // the query above forever, even though the AI's suggested #tags are
+      // sitting right there in the content with no matching tagsToNote rows.
+      // Scoped tightly to content that still has real hashtag text in it
+      // (not just "zero tags," which can also be a legitimate outcome, e.g.
+      // an entry the AI correctly decided needed none) so this can't misfire
+      // on a genuinely-fine note. Repair just re-parses the tags already
+      // sitting in the content -- no AI call, so it can't invent tags
+      // different from what's visibly there, and no content/aiTaggedAt
+      // mutation needed since both are already correct.
+      const repairCandidates = (await prisma.notes.findMany({
+        where: { aiTaggedAt: { not: null }, isRecycle: false, tags: { none: {} }, id: { notIn: Array.from(processedIds) } },
+        orderBy: { id: 'asc' },
+      })).filter((n) => extractHashtags(n.content).length > 0);
+      const repairOnlyIds = new Set(repairCandidates.map((n) => n.id));
+
+      const notes = [...untaggedNotes, ...repairCandidates];
+
       const total = (currentProgress.total || 0) > 0 ? currentProgress.total : notes.length + processedIds.size;
       let current = currentProgress.current || processedIds.size;
 
-      console.log(`[${new Date().toISOString()}] start tag audit, ${notes.length} untagged notes`);
+      console.log(`[${new Date().toISOString()}] start tag audit, ${untaggedNotes.length} untagged notes, ${repairCandidates.length} broken notes to repair`);
 
       for (let i = 0; i < notes.length; i += BATCH_SIZE) {
         if (this.forceStopFlag) {
@@ -203,52 +226,66 @@ export class TagAuditJob extends BaseScheduleJob {
           if (processedIds.has(note.id)) continue;
 
           try {
-            // CUSTOM-JOURNAL: backfill notes never reached by the live
-            // create-path sequencing too -- transcribe pending audio first
-            // so a voice-only entry doesn't get tagged on empty content.
-            let noteContent = note.content;
-            let noteUpdatedAt = note.updatedAt;
-            if (await AiService.hasPendingAudioTranscription(note.id)) {
-              await AiService.transcribeAndAppend({ noteId: note.id, accountId: note.accountId! });
-              const refreshed = await prisma.notes.findUnique({ where: { id: note.id }, select: { content: true, updatedAt: true } });
-              noteContent = refreshed?.content ?? note.content;
-              noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
-            }
-
-            const suggestedTags = await AiService.suggestTags(noteContent, this.currentLogId);
-            if (suggestedTags.length > 0) {
-              // CUSTOM-JOURNAL: CAS write -- skips (self-heals next audit
-              // run) rather than clobbering if the note changed underneath
-              // this backfill pass. See appendTagsIfUnchanged.
-              await AiService.appendTagsIfUnchanged({
-                noteId: note.id,
-                accountId: note.accountId!,
-                expectedContent: noteContent,
-                expectedUpdatedAt: noteUpdatedAt,
-                tags: suggestedTags,
-                taskLogId: this.currentLogId,
-              });
+            if (repairOnlyIds.has(note.id)) {
+              // CUSTOM-JOURNAL: repair path -- re-parse the hashtags already
+              // sitting in this note's content and create the missing
+              // tagsToNote rows. No AI call, no content/aiTaggedAt write --
+              // both are already correct, only the relational sync was ever
+              // missing. Falls through to the shared progress-save below
+              // rather than an early `continue`, so repaired notes still
+              // update current/percentage/processedIds in the cache.
+              await syncNoteTagsFromContent(note.id, note.accountId!, note.content);
+              results.push({ type: 'success', content: `[repair] ${note.content.slice(0, 30)}`, timestamp: new Date().toISOString() });
+              processedIds.add(note.id);
+              current++;
             } else {
-              // Defensive: pick up any manually-typed hashtags not yet synced.
-              await syncNoteTagsFromContent(note.id, note.accountId!, noteContent);
+              // CUSTOM-JOURNAL: backfill notes never reached by the live
+              // create-path sequencing too -- transcribe pending audio first
+              // so a voice-only entry doesn't get tagged on empty content.
+              let noteContent = note.content;
+              let noteUpdatedAt = note.updatedAt;
+              if (await AiService.hasPendingAudioTranscription(note.id)) {
+                await AiService.transcribeAndAppend({ noteId: note.id, accountId: note.accountId! });
+                const refreshed = await prisma.notes.findUnique({ where: { id: note.id }, select: { content: true, updatedAt: true } });
+                noteContent = refreshed?.content ?? note.content;
+                noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
+              }
+
+              const suggestedTags = await AiService.suggestTags(noteContent, this.currentLogId);
+              if (suggestedTags.length > 0) {
+                // CUSTOM-JOURNAL: CAS write -- skips (self-heals next audit
+                // run) rather than clobbering if the note changed underneath
+                // this backfill pass. See appendTagsIfUnchanged.
+                await AiService.appendTagsIfUnchanged({
+                  noteId: note.id,
+                  accountId: note.accountId!,
+                  expectedContent: noteContent,
+                  expectedUpdatedAt: noteUpdatedAt,
+                  tags: suggestedTags,
+                  taskLogId: this.currentLogId,
+                });
+              } else {
+                // Defensive: pick up any manually-typed hashtags not yet synced.
+                await syncNoteTagsFromContent(note.id, note.accountId!, noteContent);
+              }
+
+              const moodScores = await AiService.scoreMood(noteContent, this.currentLogId);
+
+              // CUSTOM-JOURNAL: preserve updatedAt -- this is a background
+              // backfill bookkeeping write, not a user edit.
+              await prisma.notes.update({
+                where: { id: note.id },
+                data: {
+                  aiTaggedAt: new Date(),
+                  updatedAt: noteUpdatedAt,
+                  ...(Object.keys(moodScores).length > 0 && { moodScores }),
+                },
+              });
+
+              results.push({ type: 'success', content: noteContent.slice(0, 30), timestamp: new Date().toISOString() });
+              processedIds.add(note.id);
+              current++;
             }
-
-            const moodScores = await AiService.scoreMood(noteContent, this.currentLogId);
-
-            // CUSTOM-JOURNAL: preserve updatedAt -- this is a background
-            // backfill bookkeeping write, not a user edit.
-            await prisma.notes.update({
-              where: { id: note.id },
-              data: {
-                aiTaggedAt: new Date(),
-                updatedAt: noteUpdatedAt,
-                ...(Object.keys(moodScores).length > 0 && { moodScores }),
-              },
-            });
-
-            results.push({ type: 'success', content: noteContent.slice(0, 30), timestamp: new Date().toISOString() });
-            processedIds.add(note.id);
-            current++;
           } catch (error: any) {
             console.error(`[${new Date().toISOString()}] error tagging note ${note.id}:`, error);
             results.push({ type: 'error', content: note.content.slice(0, 30), error: error?.toString(), timestamp: new Date().toISOString() });

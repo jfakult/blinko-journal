@@ -816,7 +816,19 @@ export const aiRouter = router({
       try {
         switch (provider.provider.toLowerCase()) {
           case 'ollama': {
-            const endpoint = provider.baseURL || 'http://127.0.0.1:11434';
+            // CUSTOM-JOURNAL: provider.baseURL may or may not already end in
+            // /api -- EmbeddingProvider.ts uses it as-is (no normalization),
+            // so this journal's OLLAMA_BASE_URL is deliberately configured
+            // WITH a trailing /api to satisfy that path (see this file's
+            // seed.ts comment above the Ollama provider setup). Blindly
+            // appending /api/tags here then doubled it to /api/api/tags,
+            // which 404s with Ollama's plaintext "404 page not found" body
+            // (itself unparseable as JSON, producing a confusing second-order
+            // error). Strip any existing trailing /api first -- same
+            // strip-then-append normalization LLMProvider.ts's 'ollama' case
+            // already uses for chat -- so this works regardless of whether
+            // the configured baseURL happens to include /api or not.
+            const endpoint = (provider.baseURL || 'http://127.0.0.1:11434').trim().replace(/\/api\/?$/, '');
             const response = await proxiedFetch(`${endpoint}/api/tags`);
             const data = await response.json() as any;
             modelList = data.models?.map((model: any) => ({

@@ -428,8 +428,14 @@ export class AiService {
     const config = await AiModelFactory.globalConfig();
     const aiTagsPrompt = config.aiTagsPrompt;
     const tagAgent = aiTagsPrompt ? await AiModelFactory.TagAgent(aiTagsPrompt) : await AiModelFactory.TagAgent();
-    const tags = await getAllPathTags();
-    const input = `Existing tags list:  [${tags.join(', ')}]\n Note content:\n${content}`;
+    // CUSTOM-JOURNAL: no longer passing the existing tag list -- per explicit
+    // request, tagging should be free and creative, not anchored to
+    // whatever's already been used. This also removed the (upstream Blinko)
+    // "5-8 tags from the existing list" framing, which combined with the old
+    // 5-fixed-category prompt to force one tag per category (people/places/
+    // mood/occasion/theme) even when a category had nothing to tag -- e.g. a
+    // #people tag on an entry that names no one.
+    const input = `Note content:\n${content}`;
     const modelInfo = await AiService.#getPostProcessingModelInfo(config);
     const result = await callAgentWithLog({
       taskLogId,
@@ -464,12 +470,26 @@ export class AiService {
     const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
     if (axes.length === 0) return {};
 
+    // CUSTOM-JOURNAL: every axis is optional in the schema now, not required
+    // -- the model is instructed to only include a unipolar emotion (anger,
+    // joy, etc.) if it's actually present, rather than being forced to
+    // assign all 9 a number on every entry. That forced full-coverage was
+    // itself producing bad scores (e.g. "anxiety" pinned to 100 on an entry
+    // that never mentions anxiety at all, because the model had to put
+    // *something* there). Optional fields are valid Zod/JSON-schema -- this
+    // doesn't change how generateObject validates a response, it just means
+    // the model isn't required to supply every key.
     const schema = z.object(
-      Object.fromEntries(axes.map((axis) => [String(axis.id), z.number().min(0).max(100)]))
+      Object.fromEntries(axes.map((axis) => [String(axis.id), z.number().min(1).max(100).optional()]))
     );
 
+    // CUSTOM-JOURNAL: spells out each axis's id explicitly (not just its
+    // label), and whether it's always-include (bipolar) or only-if-present
+    // (unipolar) -- see moodSystemPrompt's comment for why.
     const axesDescription = axes
-      .map((axis) => (axis.negativeLabel ? `${axis.positiveLabel}/${axis.negativeLabel}` : axis.positiveLabel))
+      .map((axis) => axis.negativeLabel
+        ? `${axis.id}: ${axis.positiveLabel}/${axis.negativeLabel} (bipolar -- always include; 0 = fully ${axis.negativeLabel}, 100 = fully ${axis.positiveLabel}, 50 = neutral/mixed)`
+        : `${axis.id}: ${axis.positiveLabel} (only include if genuinely present above 0; omit entirely if absent from the entry)`)
       .join('\n');
     const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
     const input = `Entry content:\n${content}`;
@@ -477,29 +497,23 @@ export class AiService {
     const model = await AiModelFactory.GetPostProcessingLLM();
     const modelInfo = await AiService.#getPostProcessingModelInfo();
 
-    // CUSTOM-JOURNAL: small local models (e.g. qwen 1.7B over Ollama) don't
-    // reliably support the AI SDK's tool-calling-based structured output --
-    // generateObject's default mode throws AI_NoObjectGeneratedError on
-    // these often enough that it broke every mood-scoring call in practice
-    // (and, since tagAuditJob.ts calls scoreMood right after tagging, it was
-    // taking otherwise-successful tag audit runs down with it too). Per
-    // explicit instruction, this must succeed essentially 100% of the time
-    // even if the approach is hacky: try schema-mode generateObject first
-    // (best quality when the provider supports it), then a raw-JSON mode
-    // (asks the model to just emit JSON as text, more compatible with weak
-    // local models), then finally fall back to a plain-text generateText
-    // call with a hand-rolled JSON-extraction parser. Every attempt that
-    // still can't be turned into valid numbers per axis gets a neutral
-    // default (50) rather than throwing -- an approximate score for every
-    // axis beats no score and no data for the note at all.
+    // CUSTOM-JOURNAL: small local models don't reliably support the AI SDK's
+    // tool-calling-based structured output -- generateObject's default mode
+    // can throw AI_NoObjectGeneratedError often enough to break every
+    // mood-scoring call (and, since tagAuditJob.ts calls scoreMood right
+    // after tagging, that used to take otherwise-successful tag audit runs
+    // down with it too). This must succeed essentially 100% of the time even
+    // if the approach is hacky: try schema-mode generateObject first (best
+    // quality when the provider supports it), then a raw-JSON mode, then
+    // finally fall back to a plain-text generateText call with a hand-rolled
+    // JSON-extraction parser.
     const attempts: Array<{ label: string; run: () => Promise<{ object: unknown }> }> = [
       { label: 'generateObject (auto)', run: () => generateObject({ model, schema, system: systemPrompt, prompt: input }) },
       { label: 'generateObject (json mode)', run: () => generateObject({ model, schema, system: systemPrompt, prompt: input, mode: 'json' as any }) },
       {
         label: 'generateText + manual JSON parse',
         run: async () => {
-          const axisKeys = axes.map((a) => String(a.id));
-          const jsonPrompt = `${input}\n\nRespond with ONLY a single JSON object, no explanation, no code fences, no markdown. It must have exactly these keys, each set to a whole number 0-100: ${JSON.stringify(axisKeys)}`;
+          const jsonPrompt = `${input}\n\nRespond with ONLY a single JSON object, no explanation, no code fences, no markdown. Keys are dimension ids (as strings) per the rules above -- include only the ids those rules say to include, each set to a whole number 1-100.`;
           const { text } = await generateText({ model, system: systemPrompt, prompt: jsonPrompt });
           const match = text.match(/\{[\s\S]*\}/);
           if (!match) throw new Error(`No JSON object found in model output: ${text.slice(0, 200)}`);
@@ -508,16 +522,30 @@ export class AiService {
       },
     ];
 
+    // CUSTOM-JOURNAL: an axis genuinely omitted by the model means different
+    // things depending on axis type. For a unipolar emotion, "not
+    // mentioned" correctly reads as 0 (absent). For a bipolar axis, 0 is a
+    // real, meaningful endpoint (fully the negative label) -- reading a
+    // missing bipolar key as "definitely fully negative" would be wrong, so
+    // it defaults to 50 (neutral/unscored) instead. Used both for a key the
+    // model left out and as the final fallback if every attempt fails.
+    const defaultFor = (axis: (typeof axes)[number]) => (axis.negativeLabel ? 50 : 0);
+
     const startedAt = new Date();
     let lastError: any = null;
     for (const attempt of attempts) {
       try {
         const result = await attempt.run();
+        const raw = result.object as Record<string, unknown>;
         const scores: Record<string, number> = {};
         for (const axis of axes) {
-          const raw = (result.object as Record<string, unknown>)[String(axis.id)];
-          const score = typeof raw === 'number' ? raw : Number(raw);
-          scores[String(axis.id)] = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 50;
+          const key = String(axis.id);
+          if (!(key in raw) || raw[key] == null) {
+            scores[key] = defaultFor(axis);
+            continue;
+          }
+          const value = typeof raw[key] === 'number' ? (raw[key] as number) : Number(raw[key]);
+          scores[key] = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : defaultFor(axis);
         }
         await logAiTaskCall(taskLogId, {
           agent: 'MoodAgent',
@@ -527,19 +555,20 @@ export class AiService {
           finishedAt: new Date().toISOString(),
           durationMs: Date.now() - startedAt.getTime(),
           input,
-          output: `[${attempt.label}] ${JSON.stringify(scores)}`,
+          output: `[${attempt.label}] raw=${JSON.stringify(raw)} resolved=${JSON.stringify(scores)}`,
         });
         return scores;
       } catch (error: any) {
         lastError = error;
-        console.warn(`[MoodAgent] ${attempt.label} failed, ${attempt === attempts[attempts.length - 1] ? 'falling back to neutral defaults' : 'trying next strategy'}:`, error?.message || error);
+        console.warn(`[MoodAgent] ${attempt.label} failed, ${attempt === attempts[attempts.length - 1] ? 'falling back to per-axis defaults' : 'trying next strategy'}:`, error?.message || error);
       }
     }
 
-    // Every strategy failed -- return a neutral score for every axis instead
-    // of throwing, so the note still gets a complete moodScores object and a
+    // Every strategy failed -- fall back to the same per-axis defaults used
+    // for an omitted key (0 for unipolar, 50/neutral for bipolar) rather
+    // than throwing, so the note still gets a moodScores object and a
     // caller like tagAuditJob.ts never treats this as a fatal per-note error.
-    const neutralScores: Record<string, number> = Object.fromEntries(axes.map((axis) => [String(axis.id), 50]));
+    const fallbackScores: Record<string, number> = Object.fromEntries(axes.map((axis) => [String(axis.id), defaultFor(axis)]));
     await logAiTaskCall(taskLogId, {
       agent: 'MoodAgent',
       provider: modelInfo.provider,
@@ -548,10 +577,10 @@ export class AiService {
       finishedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
       input,
-      output: `[all strategies failed, neutral defaults] ${JSON.stringify(neutralScores)}`,
+      output: `[all strategies failed, per-axis defaults] ${JSON.stringify(fallbackScores)}`,
       error: lastError?.message || String(lastError),
     });
-    return neutralScores;
+    return fallbackScores;
   }
 
   // CUSTOM-JOURNAL: appends AI-suggested tags via optimistic-concurrency

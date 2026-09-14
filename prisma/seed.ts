@@ -102,6 +102,32 @@ async function main() {
   await seedDefaultMoodAxes();
 }
 
+// CUSTOM-JOURNAL: module-scope (not nested in seedDefaultAiConfig) so any
+// seed function -- currently seedDefaultAiConfig's forceSetConfigOnce and
+// seedDefaultMoodAxes' axis-split migration below -- can apply a one-time
+// migration through the same `_seedMigrationsApplied` tracking row and id
+// namespace, regardless of which config/table it actually touches. A
+// migration id is unique across the whole seed file, not per-function.
+async function getAppliedMigrations(): Promise<string[]> {
+  const row = await prisma.config.findFirst({ where: { key: '_seedMigrationsApplied', userId: null } });
+  const value = (row?.config as any)?.value;
+  return Array.isArray(value) ? value : [];
+}
+async function runMigrationOnce(migrationId: string, fn: () => Promise<void>): Promise<void> {
+  const applied = await getAppliedMigrations();
+  if (applied.includes(migrationId)) return;
+
+  await fn();
+
+  const migrationsRow = await prisma.config.findFirst({ where: { key: '_seedMigrationsApplied', userId: null } });
+  const next = [...applied, migrationId];
+  if (migrationsRow) {
+    await prisma.config.update({ where: { id: migrationsRow.id }, data: { config: { type: 'object', value: next } } });
+  } else {
+    await prisma.config.create({ data: { key: '_seedMigrationsApplied', config: { type: 'object', value: next } } });
+  }
+}
+
 /**
  * CUSTOM-JOURNAL: seed/self-heal the local AI configuration (chat +
  * auto-tagging + embeddings + vision + voice transcription) so this fork's
@@ -145,37 +171,23 @@ async function seedDefaultAiConfig() {
   // an existing row, so editing a prompt constant here and redeploying has
   // no effect on a server that already seeded the old text -- this bit us
   // with journalTagsPrompt below). forceSetConfigOnce applies one specific
-  // overwrite exactly once, tracked by a migration id in a dedicated
-  // `_seedMigrationsApplied` config row, then never touches that key again
-  // -- including never re-applying if the user edits it afterward in AI
-  // Settings. Use this instead of setConfigIfMissing whenever a default's
-  // *value* changes and already-deployed installs need to pick it up
-  // without manual DB surgery; give each call a unique, never-reused id.
-  const getAppliedMigrations = async (): Promise<string[]> => {
-    const row = await prisma.config.findFirst({ where: { key: '_seedMigrationsApplied', userId: null } });
-    const value = (row?.config as any)?.value;
-    return Array.isArray(value) ? value : [];
-  };
+  // config overwrite exactly once, tracked by a migration id via
+  // runMigrationOnce below, then never touches that key again -- including
+  // never re-applying if the user edits it afterward in AI Settings. Use
+  // this instead of setConfigIfMissing whenever a default's *value* changes
+  // and already-deployed installs need to pick it up without manual DB
+  // surgery; give each call a unique, never-reused id.
   const forceSetConfigOnce = async (migrationId: string, key: string, value: any) => {
-    const applied = await getAppliedMigrations();
-    if (applied.includes(migrationId)) return;
-
-    const existing = await prisma.config.findFirst({ where: { key, userId: null } });
-    if (existing) {
-      await prisma.config.update({ where: { id: existing.id }, data: { config: { type: typeof value, value } } });
-      console.log(`   config.${key} force-updated by migration ${migrationId}`);
-    } else {
-      await prisma.config.create({ data: { key, config: { type: typeof value, value } } });
-      console.log(`   config.${key} = ${JSON.stringify(value)} (migration ${migrationId})`);
-    }
-
-    const migrationsRow = await prisma.config.findFirst({ where: { key: '_seedMigrationsApplied', userId: null } });
-    const next = [...applied, migrationId];
-    if (migrationsRow) {
-      await prisma.config.update({ where: { id: migrationsRow.id }, data: { config: { type: 'object', value: next } } });
-    } else {
-      await prisma.config.create({ data: { key: '_seedMigrationsApplied', config: { type: 'object', value: next } } });
-    }
+    await runMigrationOnce(migrationId, async () => {
+      const existing = await prisma.config.findFirst({ where: { key, userId: null } });
+      if (existing) {
+        await prisma.config.update({ where: { id: existing.id }, data: { config: { type: typeof value, value } } });
+        console.log(`   config.${key} force-updated by migration ${migrationId}`);
+      } else {
+        await prisma.config.create({ data: { key, config: { type: typeof value, value } } });
+        console.log(`   config.${key} = ${JSON.stringify(value)} (migration ${migrationId})`);
+      }
+    });
   };
 
   // --- Ollama provider (chat + embeddings + vision) ---
@@ -286,24 +298,28 @@ async function seedDefaultAiConfig() {
     console.log('ℹ WHISPER_BASE_URL not set — skipping voice transcription setup (voiceModelId left unconfigured). Set it and restart once the Whisper service is deployed.');
   }
 
-  // CUSTOM-JOURNAL: freeform, flat tags -- no category prefixes or slash
-  // hierarchy (was #people/mom, #places/home, #theme/work, etc.). Dropped
-  // per explicit request: single-word or hyphenated tags only, no slashes,
-  // for cleaner organization. Applied via forceSetConfigOnce (not
-  // setConfigIfMissing) below so an already-seeded install actually picks
-  // this text up on the next boot instead of keeping the old slash-based
-  // prompt forever -- see forceSetConfigOnce's comment above.
-  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the topic/theme. Rules:
-1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure.
-2. **Reuse first**: prefer an existing tag from the provided tag list over inventing a new one, if it genuinely fits.
-3. **New tags**: if nothing existing fits, invent a new single-word or hyphenated tag.
-4. **Avoid generic note-taking tags**: do NOT use tags like #todo, #idea, #project, #meeting unless the entry is genuinely about work — this is a personal journal, not a notes app.
-5. **Language**: match the language of the entry.
-6. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #mom,#home,#grateful,#roadtrip`;
+  // CUSTOM-JOURNAL: freeform, flat, grounded-only tags -- no category
+  // prefixes/slash hierarchy (was #people/mom, #places/home, #theme/work,
+  // etc.), and no existing-tag list passed in anymore either (see
+  // AiService.suggestTags in server/aiServer/index.ts) so this prompt no
+  // longer references "the provided tag list." The old prompt's fixed
+  // 5-category structure (people/places/mood/occasion/theme) combined with
+  // "select tags from the existing list" to force one tag per category even
+  // when a category had nothing to tag -- e.g. a #people tag on an entry
+  // that names no one. Rule 2 below targets that directly. Applied via
+  // forceSetConfigOnce (not setConfigIfMissing) so an already-seeded install
+  // actually picks up prompt-text changes -- see forceSetConfigOnce's
+  // comment above. Bump the migration id any time this text changes again.
+  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the specific topic/thing being discussed. Rules:
+1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure. A concrete noun or subject from the entry (e.g. #journal, #website, #coffee, #running) is just as valid a tag as an emotion or person.
+2. **Only tag what's actually present**: do not invent a tag for a category (person, place, occasion, etc.) just to cover it -- if the entry names no person, don't produce a people-ish tag; if it mentions no place, don't produce a place-ish tag. Every tag must be clearly grounded in what the entry actually says.
+3. **Avoid generic note-taking tags**: do NOT use tags like #todo, #idea, #project, #meeting unless the entry is genuinely about work — this is a personal journal, not a notes app.
+4. **Language**: match the language of the entry.
+5. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #mom,#home,#grateful,#roadtrip`;
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
-  await forceSetConfigOnce('2026-09-14-flat-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
+  await forceSetConfigOnce('2026-09-15-freeform-grounded-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
 
   // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
   // entry's date should read as "when I wrote this," not "when it was last
@@ -337,32 +353,72 @@ async function seedDefaultAiConfig() {
   console.log('✅ AI config seed/self-heal pass complete.');
 }
 
-// CUSTOM-JOURNAL: seeds the default mood axes (emotional valence + 8 basic
-// emotions) AI-scores every note against, once, if the account has none yet.
-// Non-destructive and idempotent like seedDefaultAiConfig above -- safe to
-// re-run on every boot. The user can add/rename/delete axes afterward from
-// AI Settings, this is just a sensible starting set.
+// CUSTOM-JOURNAL: seeds the default mood axes (positivity + negativity +
+// 8 basic emotions) AI-scores every note against, once, if the account has
+// none yet. Non-destructive and idempotent like seedDefaultAiConfig above --
+// safe to re-run on every boot. The user can add/rename/delete axes
+// afterward from AI Settings, this is just a sensible starting set.
 async function seedDefaultMoodAxes() {
   const existingCount = await prisma.moodAxis.count();
-  if (existingCount > 0) return;
+  if (existingCount === 0) {
+    console.log('🎭 Seeding default mood axes...');
+    // CUSTOM-JOURNAL: valence used to be one bipolar axis (positiveLabel:
+    // 'positive', negativeLabel: 'negative', scored 0-100 where 50 meant
+    // "neutral OR mixed" -- indistinguishable). Split into two independent
+    // unipolar axes: a bipolar scale forces the model to net two opposing
+    // signals into one number, where separate axes let it judge each one's
+    // presence/strength independently (same as every other emotion here),
+    // and actually represent a genuinely mixed entry (e.g. grateful AND
+    // frustrated) instead of flattening it to an uninformative 50.
+    const defaultAxes: { positiveLabel: string; negativeLabel: string | null }[] = [
+      { positiveLabel: 'positivity', negativeLabel: null },
+      { positiveLabel: 'negativity', negativeLabel: null },
+      { positiveLabel: 'anger', negativeLabel: null },
+      { positiveLabel: 'anxiety', negativeLabel: null },
+      { positiveLabel: 'joy', negativeLabel: null },
+      { positiveLabel: 'sadness', negativeLabel: null },
+      { positiveLabel: 'surprise', negativeLabel: null },
+      { positiveLabel: 'fear', negativeLabel: null },
+      { positiveLabel: 'excitement', negativeLabel: null },
+      { positiveLabel: 'gratitude', negativeLabel: null },
+    ];
 
-  console.log('🎭 Seeding default mood axes...');
-  const defaultAxes: { positiveLabel: string; negativeLabel: string | null }[] = [
-    { positiveLabel: 'positive', negativeLabel: 'negative' }, // emotional valence
-    { positiveLabel: 'anger', negativeLabel: null },
-    { positiveLabel: 'anxiety', negativeLabel: null },
-    { positiveLabel: 'joy', negativeLabel: null },
-    { positiveLabel: 'sadness', negativeLabel: null },
-    { positiveLabel: 'surprise', negativeLabel: null },
-    { positiveLabel: 'fear', negativeLabel: null },
-    { positiveLabel: 'excitement', negativeLabel: null },
-    { positiveLabel: 'gratitude', negativeLabel: null },
-  ];
-
-  for (let i = 0; i < defaultAxes.length; i++) {
-    await prisma.moodAxis.create({ data: { ...defaultAxes[i], sortOrder: i } });
+    for (let i = 0; i < defaultAxes.length; i++) {
+      await prisma.moodAxis.create({ data: { ...defaultAxes[i], sortOrder: i } });
+    }
+    console.log(`   ✅ Seeded ${defaultAxes.length} mood axes.`);
   }
-  console.log(`   ✅ Seeded ${defaultAxes.length} mood axes.`);
+
+  // CUSTOM-JOURNAL: the migration for an already-deployed install that seeded
+  // the OLD single bipolar valence axis before this split existed. Deletes
+  // that axis and creates two fresh ones (positivity, negativity) rather
+  // than repurposing its id in place -- an old bipolar score of e.g. 30
+  // meant "leaning negative" under the old scale, which is not the same
+  // thing as a new unipolar "positivity: 30" (mild positivity present), so
+  // silently reinterpreting old numbers under the new axis would be
+  // misleading. Existing notes' moodScores simply keep their old score under
+  // the now-deleted axis id as inert JSON -- nothing renders it (see
+  // SentimentView, which iterates the current axis list, not a note's
+  // stored keys) -- and get scored on the two new axes going forward. A
+  // brand new install never has the old row and skips straight past this.
+  await runMigrationOnce('2026-09-16-split-valence-axis', async () => {
+    const oldValenceAxis = await prisma.moodAxis.findFirst({
+      where: { positiveLabel: 'positive', negativeLabel: 'negative' },
+    });
+    if (!oldValenceAxis) return;
+
+    const maxSortOrder = await prisma.moodAxis.aggregate({ _max: { sortOrder: true } });
+    const baseSortOrder = maxSortOrder._max.sortOrder ?? oldValenceAxis.sortOrder;
+
+    await prisma.moodAxis.delete({ where: { id: oldValenceAxis.id } });
+    await prisma.moodAxis.create({
+      data: { positiveLabel: 'positivity', negativeLabel: null, sortOrder: baseSortOrder + 1, accountId: oldValenceAxis.accountId },
+    });
+    await prisma.moodAxis.create({
+      data: { positiveLabel: 'negativity', negativeLabel: null, sortOrder: baseSortOrder + 2, accountId: oldValenceAxis.accountId },
+    });
+    console.log(`   🔀 Replaced bipolar valence axis ${oldValenceAxis.id} with two new axes: positivity, negativity.`);
+  });
 }
 
 export async function seedDefaultFonts() {
