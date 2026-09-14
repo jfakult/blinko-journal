@@ -18,7 +18,7 @@ const DATE_DESC = 'date:desc';
 export default function FilterPop() {
   const { t } = useTranslation();
   const blinkoStore = RootStore.Get(BlinkoStore);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [isOpen, setIsOpen] = useState(false);
   const [dateRange, setDateRange] = useState<{
@@ -150,6 +150,18 @@ export default function FilterPop() {
       hasTodo: false,
       ...parseSortValue(DATE_DESC)
     };
+
+    // CUSTOM-JOURNAL: a tag-chip click (or a previous Apply) can leave
+    // filter params like tagId in the URL (?path=all&tagId=7) -- clearing
+    // only the MobX filter config left the URL stale, and since
+    // blinkoStore's useQuery() effect re-derives noteListFilterConfig from
+    // the URL on every path/searchParams change, that stale tagId would
+    // silently reassert itself on the next navigation. Strip every
+    // filter-related param here, keeping the rest (e.g. path) intact.
+    const next = new URLSearchParams(searchParams);
+    ['tagId', 'withoutTag', 'withLink', 'withFile', 'hasTodo', 'searchText'].forEach((key) => next.delete(key));
+    setSearchParams(next, { replace: true });
+
     getActiveList().resetAndCall({});
     setIsOpen(false);
   };

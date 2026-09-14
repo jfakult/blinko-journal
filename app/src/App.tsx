@@ -54,7 +54,21 @@ const HomeRedirect = () => {
   
   useEffect(() => {
     const redirectToDefaultPage = async () => {
-      await blinko.config.call();
+      try {
+        await blinko.config.call();
+      } catch (error) {
+        // CUSTOM-JOURNAL: PromiseState.call() rethrows instead of swallowing
+        // the error whenever base.isOnline is false (see PromiseState.ts) --
+        // e.g. a brief connectivity blip on the deployed app. This await was
+        // previously unguarded, so that throw skipped every setLoading(false)
+        // below and left `loading` stuck at its initial `true` forever,
+        // which is why the entry page's <LoadingPage/> spinner could hang
+        // indefinitely. Fall back to rendering the home page instead of
+        // hanging; config.value may just be empty/stale for this one load.
+        console.error('Failed to load config while resolving home redirect:', error);
+        setLoading(false);
+        return;
+      }
       const defaultHomePage = blinko.config.value?.defaultHomePage;
       const currentPath = searchParams.get('path');
       const isDirectNavigation = location.key === 'default';
@@ -62,10 +76,10 @@ const HomeRedirect = () => {
         setLoading(false);
         return;
       }
-      
+
       navigate(`/?path=${defaultHomePage}`, { replace: true });
     };
-    
+
     redirectToDefaultPage();
   }, [navigate, searchParams, location]);
   

@@ -19,7 +19,6 @@ export const AiPostProcessingSection = observer(() => {
   const [isUseAiPostProcessing, setIsUseAiPostProcessing] = useState(false);
   const [aiPostProcessingMode, setAiPostProcessingMode] = useState('comment');
   const [aiCommentPrompt, setAiCommentPrompt] = useState('');
-  const [aiTagsPrompt, setAiTagsPrompt] = useState('');
   const [aiSmartEditPrompt, setAiSmartEditPrompt] = useState('');
   const [aiCustomPrompt, setAiCustomPrompt] = useState('');
 
@@ -32,7 +31,6 @@ export const AiPostProcessingSection = observer(() => {
       setIsUseAiPostProcessing(blinko.config.value.isUseAiPostProcessing || false);
       setAiPostProcessingMode(blinko.config.value.aiPostProcessingMode || 'comment');
       setAiCommentPrompt(blinko.config.value.aiCommentPrompt || '');
-      setAiTagsPrompt(blinko.config.value.aiTagsPrompt || '');
       setAiSmartEditPrompt(blinko.config.value.aiSmartEditPrompt || '');
       setAiCustomPrompt(blinko.config.value.aiCustomPrompt || '');
     }
@@ -155,40 +153,16 @@ export const AiPostProcessingSection = observer(() => {
             />
           )}
 
-          {(aiPostProcessingMode === 'tags' || aiPostProcessingMode === 'both') && (
-            <Item
-              type={isPc ? 'row' : 'col'}
-              leftContent={
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    {t('tags-prompt')}
-                  </div>
-                  <div className="text-[12px] text-default-400">{t('greater-than-prompt-used-for-auto-generating-tags-if-set-empty-the-default-prompt-will-be-used')}</div>
-                </div>
-              }
-              rightContent={
-                <Textarea
-                  radius="lg"
-                  value={aiTagsPrompt || `You are a precise label classification expert, and you will generate precisely matched content labels based on the content. Rules:
-      1. **Core Selection Principle**: Select 5 to 8 tags from the existing tag list that are most relevant to the content theme. Carefully compare the key information, technical types, application scenarios, and other elements of the content to ensure that the selected tags accurately reflect the main idea of the content.
-      2. **Language Matching Strategy**: If the language of the existing tags does not match the language of the content, give priority to using the language of the existing tags to maintain the consistency of the language style of the tag system.
-      3. **Tag Format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #javascript, #web-development). Never use slashes or any other category-prefix/hierarchy structure.
-      4. **New Tag Generation Rules**: If there are no tags in the existing list that match the content, create new single-word or hyphenated tags based on the key technologies, business fields, functional features, etc. of the content. The language of the new tags should be consistent with that of the content.
-      5. **Response Format Specification**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript.
-      6. **Example**: For JavaScript content related to web development, a reference response could be #JavaScript,#web-development,#frontend,#browser-compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly.
-         `}
-                  onBlur={(e) => {
-                    updateConfig('aiTagsPrompt', e.target.value);
-                  }}
-                  onChange={(e) => {
-                    setAiTagsPrompt(e.target.value);
-                  }}
-                  placeholder="Enter custom prompt for auto-generating tags"
-                  className="w-full md:w-[400px]"
-                />
-              }
-            />
-          )}
+          {/* CUSTOM-JOURNAL: the tags-prompt textarea (editing config.aiTagsPrompt)
+              used to live here. Removed per explicit request -- this is a
+              single-user journal, not a multi-tenant app, and the tag prompt
+              is meant to be a fixed, curated instruction set (see
+              prisma/seed.ts's journalTagsPrompt + forceSetConfigOnce) rather
+              than something exposed for editing in the UI. The config value
+              itself and server/aiServer/index.ts's suggestTags still read
+              config.aiTagsPrompt normally -- this only removes the ability to
+              change it from Settings; it can still be edited directly in the
+              DB if ever needed. */}
 
           {aiPostProcessingMode === 'smartEdit' && (
             <Item

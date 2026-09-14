@@ -226,6 +226,7 @@ export class TagAuditJob extends BaseScheduleJob {
                 expectedContent: noteContent,
                 expectedUpdatedAt: noteUpdatedAt,
                 tags: suggestedTags,
+                taskLogId: this.currentLogId,
               });
             } else {
               // Defensive: pick up any manually-typed hashtags not yet synced.

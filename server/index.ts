@@ -297,16 +297,34 @@ async function bootstrap() {
       maxAge: '7d',
       immutable: true,
       setHeaders: (res: express.Response, path: string) => {
-        if (path.endsWith('/sw.js') || path.endsWith('/registerSW.js')) {
+        // CUSTOM-JOURNAL: sw.js/registerSW.js and manifest.webmanifest are all
+        // unhashed filenames (unlike Vite's content-hashed JS/CSS chunks), so the
+        // `immutable, max-age=604800` default below is actively dangerous for them:
+        // once any client -- or worse, any shared cache/CDN/reverse proxy sitting in
+        // front of this server, which a browser-side "clear cache" can never reach --
+        // fetches one of these URLs, `immutable` tells it to keep serving that exact
+        // response for up to 7 days *without ever revalidating*, even across a full
+        // browser cache clear + PWA uninstall/reinstall on the client. That's exactly
+        // how a stale manifest.webmanifest (wrong name/icons) or a stale icon file
+        // (same filename, old bytes) can keep surfacing long after the source and the
+        // deployed image both already have the fix. Always serve these fresh.
+        if (path.endsWith('/sw.js') || path.endsWith('/registerSW.js') || path.endsWith('/manifest.webmanifest')) {
           res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
           res.setHeader('Pragma', 'no-cache');
           res.setHeader('Expires', '0');
           return;
         }
 
+        // CUSTOM-JOURNAL: the manifest's own icons (icons/*.png, referenced by name
+        // from manifest.webmanifest, apple-touch-icon.png, favicon.ico, etc.) are also
+        // unhashed -- their filenames don't change even when we swap the art (e.g. this
+        // fork's Blinko -> Journal icon replacement kept the same filenames). Dropping
+        // `immutable` here means a normal page load still revalidates (conditional GET)
+        // once max-age has a chance to lapse, instead of a client or intermediate cache
+        // treating a 7-day-old response as permanently correct.
         const ext = path.split('.').pop()?.toLowerCase();
         if (['png', 'webp', 'svg', 'json', 'ico', 'gif', 'mp4'].includes(ext || '')) {
-          res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+          res.setHeader('Cache-Control', 'public, max-age=604800');
           res.setHeader('Expires', new Date(Date.now() + 604800000).toUTCString());
         }
       }

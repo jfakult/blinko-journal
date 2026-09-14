@@ -651,27 +651,17 @@ export class BlinkoStore implements Store {
       this.curMultiSelectIds = [];
       this.isMultiSelectMode = false;
 
-      if (path == 'notes') {
-        this.noteListFilterConfig.type = NoteType.NOTE
-        this.noteOnlyList.resetAndCall({});
-      } else if (path == 'todo') {
-        this.noteListFilterConfig.type = NoteType.TODO
-        this.todoList.resetAndCall({});
-      } else if (path == 'all') {
-        this.noteListFilterConfig.type = -1
-        this.noteList.resetAndCall({});
-      } else if (path == 'archived') {
-        this.noteListFilterConfig.type = -1
-        this.noteListFilterConfig.isArchived = true
-        this.archivedList.resetAndCall({});
-      } else if (path == 'trash') {
-        this.noteListFilterConfig.type = -1
-        this.noteListFilterConfig.isRecycle = true
-        this.trashList.resetAndCall({});
-      } else {
-        this.blinkoList.resetAndCall({});
-      }
-
+      // CUSTOM-JOURNAL: every URL-derived filter field (tagId, withoutTag,
+      // withLink, withFile, hasTodo, searchText) must be written into
+      // noteListFilterConfig BEFORE any resetAndCall() below fires -- these
+      // read the filter config synchronously to build their query, so
+      // applying tagId etc. *after* the call (as this used to) meant a
+      // fresh tag-chip click (?tagId=7) updated the URL and the MobX field
+      // correctly, but the actual fetch that just fired still went out
+      // unfiltered. Reopening the filter popup showed the tag as "selected"
+      // (it reads the same, now-correct, field) which is why clicking
+      // Apply there appeared to fix it -- Apply's resetAndCall() came after
+      // tagId was already set, this one didn't.
       if (tagId) {
         this.noteListFilterConfig.tagId = Number(tagId) as number
       }
@@ -691,6 +681,27 @@ export class BlinkoStore implements Store {
         this.searchText = searchText as string;
       } else {
         this.searchText = '';
+      }
+
+      if (path == 'notes') {
+        this.noteListFilterConfig.type = NoteType.NOTE
+        this.noteOnlyList.resetAndCall({});
+      } else if (path == 'todo') {
+        this.noteListFilterConfig.type = NoteType.TODO
+        this.todoList.resetAndCall({});
+      } else if (path == 'all') {
+        this.noteListFilterConfig.type = -1
+        this.noteList.resetAndCall({});
+      } else if (path == 'archived') {
+        this.noteListFilterConfig.type = -1
+        this.noteListFilterConfig.isArchived = true
+        this.archivedList.resetAndCall({});
+      } else if (path == 'trash') {
+        this.noteListFilterConfig.type = -1
+        this.noteListFilterConfig.isRecycle = true
+        this.trashList.resetAndCall({});
+      } else {
+        this.blinkoList.resetAndCall({});
       }
     }, [this.forceQuery, location.pathname, searchParams])
   }

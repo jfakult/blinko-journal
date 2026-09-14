@@ -14,7 +14,7 @@ import { CreateNotification } from '../routerTrpc/notification';
 import { NotificationType } from '@shared/lib/prismaZodType';
 import { CoreMessage } from '@mastra/core';
 import { MDocument } from '@mastra/rag';
-import { embedMany, generateObject } from 'ai';
+import { embedMany, generateObject, generateText } from 'ai';
 import { z } from 'zod';
 import dayjs from '@shared/lib/dayjs';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
@@ -476,41 +476,82 @@ export class AiService {
 
     const model = await AiModelFactory.GetPostProcessingLLM();
     const modelInfo = await AiService.#getPostProcessingModelInfo();
+
+    // CUSTOM-JOURNAL: small local models (e.g. qwen 1.7B over Ollama) don't
+    // reliably support the AI SDK's tool-calling-based structured output --
+    // generateObject's default mode throws AI_NoObjectGeneratedError on
+    // these often enough that it broke every mood-scoring call in practice
+    // (and, since tagAuditJob.ts calls scoreMood right after tagging, it was
+    // taking otherwise-successful tag audit runs down with it too). Per
+    // explicit instruction, this must succeed essentially 100% of the time
+    // even if the approach is hacky: try schema-mode generateObject first
+    // (best quality when the provider supports it), then a raw-JSON mode
+    // (asks the model to just emit JSON as text, more compatible with weak
+    // local models), then finally fall back to a plain-text generateText
+    // call with a hand-rolled JSON-extraction parser. Every attempt that
+    // still can't be turned into valid numbers per axis gets a neutral
+    // default (50) rather than throwing -- an approximate score for every
+    // axis beats no score and no data for the note at all.
+    const attempts: Array<{ label: string; run: () => Promise<{ object: unknown }> }> = [
+      { label: 'generateObject (auto)', run: () => generateObject({ model, schema, system: systemPrompt, prompt: input }) },
+      { label: 'generateObject (json mode)', run: () => generateObject({ model, schema, system: systemPrompt, prompt: input, mode: 'json' as any }) },
+      {
+        label: 'generateText + manual JSON parse',
+        run: async () => {
+          const axisKeys = axes.map((a) => String(a.id));
+          const jsonPrompt = `${input}\n\nRespond with ONLY a single JSON object, no explanation, no code fences, no markdown. It must have exactly these keys, each set to a whole number 0-100: ${JSON.stringify(axisKeys)}`;
+          const { text } = await generateText({ model, system: systemPrompt, prompt: jsonPrompt });
+          const match = text.match(/\{[\s\S]*\}/);
+          if (!match) throw new Error(`No JSON object found in model output: ${text.slice(0, 200)}`);
+          return { object: JSON.parse(match[0]) };
+        },
+      },
+    ];
+
     const startedAt = new Date();
-    try {
-      const result = await generateObject({ model, schema, system: systemPrompt, prompt: input });
-      await logAiTaskCall(taskLogId, {
-        agent: 'MoodAgent',
-        provider: modelInfo.provider,
-        modelTitle: modelInfo.title,
-        startedAt: startedAt.toISOString(),
-        finishedAt: new Date().toISOString(),
-        durationMs: Date.now() - startedAt.getTime(),
-        input,
-        output: JSON.stringify(result.object),
-      });
-      const scores: Record<string, number> = {};
-      for (const axis of axes) {
-        const score = (result.object as Record<string, number>)[String(axis.id)];
-        if (typeof score === 'number' && !Number.isNaN(score)) {
-          scores[String(axis.id)] = Math.max(0, Math.min(100, Math.round(score)));
+    let lastError: any = null;
+    for (const attempt of attempts) {
+      try {
+        const result = await attempt.run();
+        const scores: Record<string, number> = {};
+        for (const axis of axes) {
+          const raw = (result.object as Record<string, unknown>)[String(axis.id)];
+          const score = typeof raw === 'number' ? raw : Number(raw);
+          scores[String(axis.id)] = Number.isFinite(score) ? Math.max(0, Math.min(100, Math.round(score))) : 50;
         }
+        await logAiTaskCall(taskLogId, {
+          agent: 'MoodAgent',
+          provider: modelInfo.provider,
+          modelTitle: modelInfo.title,
+          startedAt: startedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: Date.now() - startedAt.getTime(),
+          input,
+          output: `[${attempt.label}] ${JSON.stringify(scores)}`,
+        });
+        return scores;
+      } catch (error: any) {
+        lastError = error;
+        console.warn(`[MoodAgent] ${attempt.label} failed, ${attempt === attempts[attempts.length - 1] ? 'falling back to neutral defaults' : 'trying next strategy'}:`, error?.message || error);
       }
-      return scores;
-    } catch (error: any) {
-      await logAiTaskCall(taskLogId, {
-        agent: 'MoodAgent',
-        provider: modelInfo.provider,
-        modelTitle: modelInfo.title,
-        startedAt: startedAt.toISOString(),
-        finishedAt: new Date().toISOString(),
-        durationMs: Date.now() - startedAt.getTime(),
-        input,
-        output: '',
-        error: error?.message || String(error),
-      });
-      throw error;
     }
+
+    // Every strategy failed -- return a neutral score for every axis instead
+    // of throwing, so the note still gets a complete moodScores object and a
+    // caller like tagAuditJob.ts never treats this as a fatal per-note error.
+    const neutralScores: Record<string, number> = Object.fromEntries(axes.map((axis) => [String(axis.id), 50]));
+    await logAiTaskCall(taskLogId, {
+      agent: 'MoodAgent',
+      provider: modelInfo.provider,
+      modelTitle: modelInfo.title,
+      startedAt: startedAt.toISOString(),
+      finishedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt.getTime(),
+      input,
+      output: `[all strategies failed, neutral defaults] ${JSON.stringify(neutralScores)}`,
+      error: lastError?.message || String(lastError),
+    });
+    return neutralScores;
   }
 
   // CUSTOM-JOURNAL: appends AI-suggested tags via optimistic-concurrency
@@ -529,12 +570,14 @@ export class AiService {
     expectedContent,
     expectedUpdatedAt,
     tags,
+    taskLogId = null,
   }: {
     noteId: number;
     accountId: number;
     expectedContent: string;
     expectedUpdatedAt: Date;
     tags: string[];
+    taskLogId?: number | null;
   }): Promise<boolean> {
     if (tags.length === 0) return true;
     const newContent = `${expectedContent}\n${tags.join(' ')}`;
@@ -547,6 +590,26 @@ export class AiService {
       return false;
     }
     await syncNoteTagsFromContent(noteId, accountId, newContent);
+    // CUSTOM-JOURNAL: verify the sync actually produced relation rows and
+    // surface that into the AI Task Log -- the previous bug here (a missing
+    // syncNoteTagsFromContent import, now fixed) had the content write
+    // succeed while the relational sync silently no-op'd via a caught
+    // ReferenceError, so "tags appear in content but never show as real
+    // tags" looked identical to success in every existing log. This entry
+    // makes that mismatch visible without needing DB access to spot it.
+    const relationCount = await prisma.tagsToNote.count({ where: { noteId } });
+    if (relationCount === 0) {
+      console.warn(`[AI tagging] note ${noteId}: appended tags "${tags.join(' ')}" to content but tagsToNote has 0 rows for this note`);
+    }
+    await logAiTaskCall(taskLogId, {
+      agent: 'TagSync',
+      input: tags.join(' '),
+      output: `Note ${noteId} now has ${relationCount} tag relation(s) in the DB`,
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      durationMs: 0,
+      ...(relationCount === 0 ? { error: 'syncNoteTagsFromContent produced 0 tagsToNote rows despite non-empty tags' } : {}),
+    });
     try {
       const config = await AiModelFactory.globalConfig();
       if (config.embeddingModelId) {
@@ -708,6 +771,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
             expectedContent: note.content,
             expectedUpdatedAt: note.updatedAt,
             tags: suggestedTags,
+            taskLogId,
           });
         } catch (error) {
           console.error('Error processing tags:', error);
@@ -854,13 +918,28 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     voiceModelId: number;
     accountId: number;
     taskLogId?: number | null;
-  }): Promise<{ success: boolean; transcriptions: Array<{ fileName: string; transcription: string }> }> {
+  }): Promise<{ success: boolean; transcriptions: Array<{ fileName: string; transcription: string }>; error?: string }> {
     try {
       const audioAttachments = attachments.filter(attachment =>
         this.isAudio(attachment.name || attachment.path)
       );
 
       if (audioAttachments.length === 0) {
+        // CUSTOM-JOURNAL: distinct from a real failure -- surfaced as its
+        // own call-log entry so "transcription task finished instantly with
+        // 0 calls" is diagnosable as "no file here was recognized as
+        // audio" rather than an unexplained no-op (see transcribeAndAppend's
+        // caller, which used to report this identically to every other
+        // failure as "Transcription failed or produced no text").
+        await logAiTaskCall(taskLogId, {
+          agent: 'AudioTranscription',
+          input: attachments.map((a) => a.name || a.path).join(', '),
+          output: '',
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: 0,
+          error: 'None of the pending attachments were recognized as audio by isAudio() -- check attachment name/extension',
+        });
         return { success: true, transcriptions: [] };
       }
 
@@ -932,9 +1011,27 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       }
 
       return { success: true, transcriptions };
-    } catch (error) {
+    } catch (error: any) {
+      // CUSTOM-JOURNAL: this used to only console.error and return
+      // success:false with no detail -- a failure here (e.g. resolving the
+      // voice model config) meant the per-attachment loop, and therefore
+      // every logAiTaskCall entry above, never even ran, so the resulting
+      // task showed 0 calls with no way to tell why from the UI. Log a
+      // diagnostic call with the real error before returning so it's
+      // visible without server console access, and propagate the message
+      // to the caller so transcribeAndAppend's finish message is specific
+      // instead of the generic "failed or produced no text".
       console.error('Error processing note audio attachments:', error);
-      return { success: false, transcriptions: [] };
+      await logAiTaskCall(taskLogId, {
+        agent: 'AudioTranscription',
+        input: attachments.map((a) => a.name || a.path).join(', '),
+        output: '',
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
+        durationMs: 0,
+        error: error?.message || String(error),
+      });
+      return { success: false, transcriptions: [], error: error?.message || String(error) };
     }
   }
 
@@ -966,7 +1063,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       message: `${pendingAttachments.length} audio attachment(s)`,
     });
 
-    const { success, transcriptions } = await AiService.processNoteAudioAttachments({
+    const { success, transcriptions, error: batchError } = await AiService.processNoteAudioAttachments({
       attachments: pendingAttachments,
       voiceModelId: config.voiceModelId,
       accountId,
@@ -982,7 +1079,19 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     });
 
     if (!success || transcriptions.length === 0) {
-      await logAiTaskFinish(taskLogId, 'error', 'Transcription failed or produced no text');
+      // CUSTOM-JOURNAL: was one generic message ("Transcription failed or
+      // produced no text") for every distinct failure mode -- now specific
+      // enough to diagnose from the AI Task Log UI alone.
+      const message = batchError
+        ? `Transcription batch failed: ${batchError}`
+        : transcriptions.length === 0
+          ? 'No attachments were recognized as audio to transcribe'
+          : 'Transcription produced no text';
+      await logAiTaskFinish(taskLogId, 'error', message);
+      return { transcribedAny: false };
+    }
+    if (transcriptions.every((t) => !t.transcription)) {
+      await logAiTaskFinish(taskLogId, 'error', 'Every attachment transcribed to an empty string -- check the voice model/provider config (see per-call log entries above)');
       return { transcribedAny: false };
     }
 

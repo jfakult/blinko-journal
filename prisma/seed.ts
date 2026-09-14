@@ -138,6 +138,46 @@ async function seedDefaultAiConfig() {
     console.log(`   config.${key} = ${JSON.stringify(value)}`);
   };
 
+  // CUSTOM-JOURNAL: setConfigIfMissing only ever writes a value the first
+  // time a key is seen -- correct for "sensible default the user may have
+  // since customized," wrong for "we changed what the default itself says
+  // and need an already-seeded install to pick it up" (nothing ever resets
+  // an existing row, so editing a prompt constant here and redeploying has
+  // no effect on a server that already seeded the old text -- this bit us
+  // with journalTagsPrompt below). forceSetConfigOnce applies one specific
+  // overwrite exactly once, tracked by a migration id in a dedicated
+  // `_seedMigrationsApplied` config row, then never touches that key again
+  // -- including never re-applying if the user edits it afterward in AI
+  // Settings. Use this instead of setConfigIfMissing whenever a default's
+  // *value* changes and already-deployed installs need to pick it up
+  // without manual DB surgery; give each call a unique, never-reused id.
+  const getAppliedMigrations = async (): Promise<string[]> => {
+    const row = await prisma.config.findFirst({ where: { key: '_seedMigrationsApplied', userId: null } });
+    const value = (row?.config as any)?.value;
+    return Array.isArray(value) ? value : [];
+  };
+  const forceSetConfigOnce = async (migrationId: string, key: string, value: any) => {
+    const applied = await getAppliedMigrations();
+    if (applied.includes(migrationId)) return;
+
+    const existing = await prisma.config.findFirst({ where: { key, userId: null } });
+    if (existing) {
+      await prisma.config.update({ where: { id: existing.id }, data: { config: { type: typeof value, value } } });
+      console.log(`   config.${key} force-updated by migration ${migrationId}`);
+    } else {
+      await prisma.config.create({ data: { key, config: { type: typeof value, value } } });
+      console.log(`   config.${key} = ${JSON.stringify(value)} (migration ${migrationId})`);
+    }
+
+    const migrationsRow = await prisma.config.findFirst({ where: { key: '_seedMigrationsApplied', userId: null } });
+    const next = [...applied, migrationId];
+    if (migrationsRow) {
+      await prisma.config.update({ where: { id: migrationsRow.id }, data: { config: { type: 'object', value: next } } });
+    } else {
+      await prisma.config.create({ data: { key: '_seedMigrationsApplied', config: { type: 'object', value: next } } });
+    }
+  };
+
   // --- Ollama provider (chat + embeddings + vision) ---
   let ollamaProvider = await prisma.aiProviders.findFirst({ where: { provider: 'ollama' } });
   const ollamaBaseURL = process.env.OLLAMA_BASE_URL;
@@ -249,10 +289,10 @@ async function seedDefaultAiConfig() {
   // CUSTOM-JOURNAL: freeform, flat tags -- no category prefixes or slash
   // hierarchy (was #people/mom, #places/home, #theme/work, etc.). Dropped
   // per explicit request: single-word or hyphenated tags only, no slashes,
-  // for cleaner organization. setConfigIfMissing only writes when unset, so
-  // updating this constant won't retroactively change an already-seeded
-  // prompt on a live server -- clear the 'aiTagsPrompt' config row (or edit
-  // it directly in AI Settings -> Post-Processing) to pick this up there.
+  // for cleaner organization. Applied via forceSetConfigOnce (not
+  // setConfigIfMissing) below so an already-seeded install actually picks
+  // this text up on the next boot instead of keeping the old slash-based
+  // prompt forever -- see forceSetConfigOnce's comment above.
   const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the topic/theme. Rules:
 1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure.
 2. **Reuse first**: prefer an existing tag from the provided tag list over inventing a new one, if it genuinely fits.
@@ -263,7 +303,7 @@ async function seedDefaultAiConfig() {
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
-  await setConfigIfMissing('aiTagsPrompt', journalTagsPrompt);
+  await forceSetConfigOnce('2026-09-14-flat-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
 
   // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
   // entry's date should read as "when I wrote this," not "when it was last
