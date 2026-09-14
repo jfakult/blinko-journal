@@ -189,7 +189,7 @@ export const analyticsRouter = router({
       // CUSTOM-JOURNAL: mood trend -- average each moodAxis's score per day,
       // over days in the month that have at least one scored note. Done in
       // JS rather than SQL since moodScores is a JSONB blob keyed dynamically
-      // by axis id (a per-axis raw-SQL aggregate would need one expression
+      // by axis name (a per-axis raw-SQL aggregate would need one expression
       // per axis, rebuilt whenever axes are added/removed in AI Settings).
       const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } })
       let moodStats: { axes: { id: number; positiveLabel: string; negativeLabel: string | null }[]; days: string[]; series: Record<string, (number | null)[]> } | undefined
@@ -210,7 +210,7 @@ export const analyticsRouter = router({
           if (!byDay.has(day)) byDay.set(day, { sums: {}, counts: {} })
           const entry = byDay.get(day)!
           for (const axis of axes) {
-            const val = (note.moodScores as Record<string, unknown>)[String(axis.id)]
+            const val = (note.moodScores as Record<string, unknown>)[axis.positiveLabel]
             if (typeof val === 'number') {
               entry.sums[axis.id] = (entry.sums[axis.id] ?? 0) + val
               entry.counts[axis.id] = (entry.counts[axis.id] ?? 0) + 1

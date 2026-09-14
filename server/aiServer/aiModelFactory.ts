@@ -604,6 +604,10 @@ export class AiModelFactory {
   // abstract left to get stuck on regardless of how many bipolar axes
   // exist. "Answer briefly" replaces an earlier "/no_think" + Ollama
   // think:false approach -- simpler, and tested to work as well or better.
+  // (3) the response is now keyed by each dimension's name instead of its
+  // id -- see AiService.scoreMood's comment for why (log readability, and
+  // moods being user-editable over time) and tagAuditJob.ts's repair pass
+  // for how already-scored notes get migrated off the old id-keyed format.
   static moodSystemPrompt(axesDescription: string): string {
     return `You are an emotional-tone analysis expert for a personal journal. Below is a list of mood dimensions, each with its own instructions for when and how to score it.
 
@@ -614,17 +618,15 @@ Rules:
 1. Follow each dimension's own instructions above to decide whether to include it -- most say to only include it if genuinely present in the entry.
 2. When you do include a dimension, use the full range thoughtfully: a mild, passing feeling scores low (1-3), a clearly present but not overwhelming feeling scores mid-range (4-7), and only a genuinely intense, dominant feeling scores high (8-10). Don't default to 0 or 10 out of habit.
 3. Base every score only on what the entry actually expresses or implies, never on assumptions beyond the text.
-4. Respond with a JSON object keyed by each dimension's id (as a string, exactly as given above), mapping to its score. Leave out any dimension its own instructions say to skip.
+4. Respond with a JSON object keyed by each dimension's exact name (as given above), mapping to its score. Leave out any dimension its own instructions say to skip -- never include one at 0 just to show it's absent.
 
-Example: if "curiosity" is present but mild, include its id with a low-to-mid score like 25. If "boredom" isn't expressed at all, leave its id out of the response entirely.
-
-Sample output:
+Sample output shape (the names and scores below are just illustrative -- use the real dimension names from the list above, and include only the ones that actually apply):
 {
-  "curiosity": 3,
-  "excitement": 8,
-  "anger": 0,
-  "joy": 7,
-  "positivity": 7
+  "positive": 7,
+  "negative": 3,
+  "joy": 8,
+  "excitement": 5,
+  "anxiety": 2
 }
 
 Answer briefly`;

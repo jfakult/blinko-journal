@@ -198,7 +198,16 @@ export const noteRouter = router({
         // since this repo has none in the environment this was written in.
         // If it doesn't sort correctly, fall back to a $queryRaw-based ID
         // ordering for just this branch (see docs/plan notes).
-        sortOrderBy = { moodScores: { path: [String(moodAxisId)], sort: orderBy } };
+        //
+        // CUSTOM-JOURNAL: moodScores is keyed by each axis's name now, not
+        // its id (see AiService.scoreMood's comment) -- the frontend still
+        // identifies which axis to sort by via its stable id (moodAxisId),
+        // so that id has to be resolved to the axis's current name before
+        // it can be used as the JSON path.
+        const moodAxis = await prisma.moodAxis.findUnique({ where: { id: moodAxisId }, select: { positiveLabel: true } });
+        if (moodAxis) {
+          sortOrderBy = { moodScores: { path: [moodAxis.positiveLabel], sort: orderBy } };
+        }
       }
 
       const notes = await prisma.notes.findMany({

@@ -486,18 +486,43 @@ export class AiService {
     // *something* there). Optional fields are valid Zod/JSON-schema -- this
     // doesn't change how generateObject validates a response, it just means
     // the model isn't required to supply every key.
+    //
+    // CUSTOM-JOURNAL: the model is asked for 0-10, not 0-100 -- that
+    // granularity was never meaningful (a personal-journal mood read doesn't
+    // need to distinguish a 62 from a 65), and asking for fewer distinct
+    // values a small model has to choose between is easier for it to reason
+    // about reliably. notes.moodScores itself, and every UI consumer
+    // (SentimentView's percentage-width bars, its "X / 100" label, mood-sort
+    // in filterPop.tsx, etc.), all still expect 0-100 -- rather than touch
+    // every one of those and leave already-scored notes on a different scale
+    // than newly-scored ones, the 0-10 model output is rescaled by *10 right
+    // before storage/return, below. scoreMood's public contract (an
+    // axisId -> 0-100 map) is unchanged; only what the model itself sees and
+    // reasons about is coarser now.
+    // CUSTOM-JOURNAL: keyed by each axis's name (positiveLabel), not its id.
+    // Moods are user-editable/addable in AI Settings and can change over
+    // time, and a name-keyed score is directly readable in the AI Task Log
+    // (`{"joy": 70}` vs `{"4": 70}`) without cross-referencing an id to a
+    // label. This does mean a later rename orphans that axis's already-
+    // scored notes (their old key no longer matches any current axis) --
+    // same as it would have for an id if an axis were ever deleted and
+    // recreated. tagAuditJob.ts's repair pass below detects the *previous*
+    // id-keyed format specifically (a purely-numeric key) and wipes+reruns
+    // scoring for any note still carrying it, so the one-time migration off
+    // ids is handled automatically; a future rename is a different, smaller
+    // problem (one axis's history, not the whole scheme) and isn't
+    // auto-repaired the same way.
     const schema = z.object(
-      Object.fromEntries(axes.map((axis) => [String(axis.id), z.number().min(1).max(100).optional()]))
+      Object.fromEntries(axes.map((axis) => [axis.positiveLabel, z.number().min(1).max(10).optional()]))
     );
 
-    // CUSTOM-JOURNAL: spells out each axis's id explicitly (not just its
-    // label) and its own include/scoring instructions -- see
-    // moodSystemPrompt's comment for why the Rules section just points back
-    // at these instead of re-describing bipolar-vs-unipolar itself.
+    // CUSTOM-JOURNAL: no longer needs to spell out each axis's id -- the
+    // schema key *is* the name now, so there's no id-to-label mapping for
+    // the model to track at all.
     const axesDescription = axes
       .map((axis) => axis.negativeLabel
-        ? `${axis.id}: ${axis.positiveLabel} vs ${axis.negativeLabel} -- always include. Score 0-100: 0 = fully ${axis.negativeLabel}, 100 = fully ${axis.positiveLabel}, 50 = neutral or mixed.`
-        : `${axis.id}: ${axis.positiveLabel} -- only include if this feeling is genuinely present in the entry; skip it entirely if not.`)
+        ? `${axis.positiveLabel} vs ${axis.negativeLabel} -- always include. Score 0-10: 0 = fully ${axis.negativeLabel}, 10 = fully ${axis.positiveLabel}, 5 = neutral or mixed.`
+        : `${axis.positiveLabel} -- only include if this feeling is genuinely present in the entry; skip it entirely if not.`)
       .join('\n');
     const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
     const input = `Entry content:\n${content}`;
@@ -546,7 +571,7 @@ export class AiService {
       {
         label: 'generateText + manual JSON parse',
         run: async () => {
-          const jsonPrompt = `${input}\n\nRespond with ONLY a single JSON object, no explanation, no code fences, no markdown. Keys are dimension ids (as strings) per the rules above -- include only the ids those rules say to include, each set to a whole number 1-100.`;
+          const jsonPrompt = `${input}\n\nRespond with ONLY a single JSON object, no explanation, no code fences, no markdown. Keys are the exact dimension names shown above -- include only the ones those rules say to include, each set to a whole number 1-10.`;
           const { text, reasoning } = await generateText({ model, system: systemPrompt, prompt: jsonPrompt });
           const match = text.match(/\{[\s\S]*\}/);
           if (!match) {
@@ -565,9 +590,17 @@ export class AiService {
     // mentioned" correctly reads as 0 (absent). For a bipolar axis, 0 is a
     // real, meaningful endpoint (fully the negative label) -- reading a
     // missing bipolar key as "definitely fully negative" would be wrong, so
-    // it defaults to 50 (neutral/unscored) instead. Used both for a key the
-    // model left out and as the final fallback if every attempt fails.
-    const defaultFor = (axis: (typeof axes)[number]) => (axis.negativeLabel ? 50 : 0);
+    // it defaults to 5 (neutral/unscored, native 0-10 scale) instead. Used
+    // both for a key the model left out and as the final fallback if every
+    // attempt fails. Rescaled to the 0-100 storage scale by toStorageScale
+    // below, same as every model-supplied value.
+    const defaultFor = (axis: (typeof axes)[number]) => (axis.negativeLabel ? 5 : 0);
+    // CUSTOM-JOURNAL: the model reasons in 0-10 (schema/prompt above); this
+    // converts to the 0-100 scale notes.moodScores and every UI consumer
+    // still expect. Applied uniformly to model-supplied and default values
+    // alike so nothing downstream needs to know the model-facing scale ever
+    // changed.
+    const toStorageScale = (value: number) => value * 10;
 
     let lastError: any = null;
     for (const attempt of attempts) {
@@ -577,13 +610,13 @@ export class AiService {
         const raw = result.object as Record<string, unknown>;
         const scores: Record<string, number> = {};
         for (const axis of axes) {
-          const key = String(axis.id);
+          const key = axis.positiveLabel;
           if (!(key in raw) || raw[key] == null) {
-            scores[key] = defaultFor(axis);
+            scores[key] = toStorageScale(defaultFor(axis));
             continue;
           }
           const value = typeof raw[key] === 'number' ? (raw[key] as number) : Number(raw[key]);
-          scores[key] = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : defaultFor(axis);
+          scores[key] = Number.isFinite(value) ? toStorageScale(Math.max(0, Math.min(10, Math.round(value)))) : toStorageScale(defaultFor(axis));
         }
         const summary = `Resolved: ${JSON.stringify(scores)}\nRaw object: ${JSON.stringify(raw)}`;
         const outputText = result.rawText ? `${summary}\n\nRaw model text:\n${result.rawText}` : summary;
@@ -624,12 +657,13 @@ export class AiService {
     }
 
     // Every strategy failed -- fall back to the same per-axis defaults used
-    // for an omitted key (0 for unipolar, 50/neutral for bipolar) rather
-    // than throwing, so the note still gets a moodScores object and a
-    // caller like tagAuditJob.ts never treats this as a fatal per-note
-    // error. The last attempt's own failure log above already carries the
-    // diagnostic detail (raw text/thinking), so no extra summary call here.
-    return Object.fromEntries(axes.map((axis) => [String(axis.id), defaultFor(axis)]));
+    // for an omitted key (0 for unipolar, 50/neutral for bipolar, on the
+    // 0-100 storage scale) rather than throwing, so the note still gets a
+    // moodScores object and a caller like tagAuditJob.ts never treats this
+    // as a fatal per-note error. The last attempt's own failure log above
+    // already carries the diagnostic detail (raw text/thinking), so no
+    // extra summary call here.
+    return Object.fromEntries(axes.map((axis) => [axis.positiveLabel, toStorageScale(defaultFor(axis))]));
   }
 
   // CUSTOM-JOURNAL: appends AI-suggested tags via optimistic-concurrency

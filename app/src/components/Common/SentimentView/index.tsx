@@ -71,15 +71,15 @@ interface SentimentViewProps {
 }
 
 // CUSTOM-JOURNAL: renders one note's mood-axis scores (notes.moodScores,
-// keyed by moodAxis.id as a string, each 0-100) as colored bars -- a bipolar
-// axis (negativeLabel set, e.g. the seeded "positive/negative" valence axis)
-// renders as a two-sided bar around a center line; a unipolar intensity axis
-// (e.g. "joy", 0 = absent) renders as a simple fill. Used by both the
-// right-click "View Sentiments" dialog (BlinkoRightClickMenu) and could be
-// reused anywhere else a note's mood needs to be shown.
+// keyed by each axis's name/positiveLabel, each 0-100) as colored bars -- a
+// bipolar axis (negativeLabel set, e.g. the old seeded "positive/negative"
+// valence axis) renders as a two-sided bar around a center line; a unipolar
+// intensity axis (e.g. "joy", 0 = absent) renders as a simple fill. Used by
+// both the right-click "View Sentiments" dialog (BlinkoRightClickMenu) and
+// could be reused anywhere else a note's mood needs to be shown.
 export const SentimentView = ({ axes, moodScores }: SentimentViewProps) => {
   const { t } = useTranslation();
-  const scored = axes.filter((axis) => moodScores != null && moodScores[String(axis.id)] != null);
+  const scored = axes.filter((axis) => moodScores != null && moodScores[axis.positiveLabel] != null);
 
   if (scored.length === 0) {
     return <div className="text-desc text-sm text-center py-6">{t('no-sentiment-data')}</div>;
@@ -88,7 +88,7 @@ export const SentimentView = ({ axes, moodScores }: SentimentViewProps) => {
   return (
     <div className="flex flex-col gap-4 py-2">
       {scored.map((axis, index) => {
-        const score = Number(moodScores![String(axis.id)]);
+        const score = Number(moodScores![axis.positiveLabel]);
         const color = getMoodColor(axis.negativeLabel ? 'positive' : axis.positiveLabel, index);
         return axis.negativeLabel
           ? <BipolarRow key={axis.id} axis={axis} score={score} color={color} />

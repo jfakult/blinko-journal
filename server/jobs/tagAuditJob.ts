@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { BaseScheduleJob } from "./baseScheduleJob";
 import { prisma } from "../prisma";
 import { NotificationType } from "@shared/lib/prismaZodType";
@@ -222,13 +223,33 @@ export class TagAuditJob extends BaseScheduleJob {
       })).filter((n) => extractHashtags(n.content).length > 0);
       const repairOnlyIds = new Set(repairCandidates.map((n) => n.id));
 
-      const notes = [...untaggedNotes, ...repairCandidates];
+      // CUSTOM-JOURNAL: one-time migration pass -- notes.moodScores used to
+      // be keyed by each moodAxis's numeric id (e.g. {"4": 70}), now keyed
+      // by its name (e.g. {"joy": 70}) so a score is readable in the AI Task
+      // Log without cross-referencing an id, and so a mood survives an axis
+      // being deleted/recreated the way an id-keyed score wouldn't. A
+      // purely-numeric key is unambiguously the old format (no real axis
+      // name will ever be all digits) -- any note still carrying one gets
+      // its moodScores wiped and scoreMood rerun from scratch, picking up
+      // the current name-keyed format. Tags are untouched; this is scoped
+      // to mood only. Excludes notes already in the other two candidate
+      // sets above, which already rerun mood as part of their own pass.
+      const moodMigrationCandidates = (await prisma.notes.findMany({
+        where: {
+          isRecycle: false,
+          id: { notIn: Array.from(new Set([...processedIds, ...untaggedNotes.map((n) => n.id), ...repairCandidates.map((n) => n.id)])) },
+        },
+        orderBy: { id: 'asc' },
+      })).filter((n) => n.moodScores && typeof n.moodScores === 'object' && Object.keys(n.moodScores as object).some((k) => /^\d+$/.test(k)));
+      const moodMigrationOnlyIds = new Set(moodMigrationCandidates.map((n) => n.id));
+
+      const notes = [...untaggedNotes, ...repairCandidates, ...moodMigrationCandidates];
 
       const total = (currentProgress.total || 0) > 0 ? currentProgress.total : notes.length + processedIds.size;
       let current = currentProgress.current || processedIds.size;
       const startingCurrent = current;
 
-      console.log(`[${new Date().toISOString()}] start tag audit, ${untaggedNotes.length} untagged notes, ${repairCandidates.length} broken notes to repair`);
+      console.log(`[${new Date().toISOString()}] start tag audit, ${untaggedNotes.length} untagged notes, ${repairCandidates.length} broken notes to repair, ${moodMigrationCandidates.length} notes to migrate off id-keyed mood scores`);
 
       for (let i = 0; i < notes.length; i += BATCH_SIZE) {
         if (this.forceStopFlag) {
@@ -258,6 +279,24 @@ export class TagAuditJob extends BaseScheduleJob {
               // update current/percentage/processedIds in the cache.
               await syncNoteTagsFromContent(note.id, note.accountId!, note.content);
               results.push({ type: 'success', content: `[repair] ${note.content.slice(0, 30)}`, timestamp: new Date().toISOString() });
+              processedIds.add(note.id);
+              current++;
+            } else if (moodMigrationOnlyIds.has(note.id)) {
+              // CUSTOM-JOURNAL: mood-key migration path -- wipe the old
+              // id-keyed moodScores and rerun scoreMood so it's rewritten in
+              // the current name-keyed format. Tags/aiTaggedAt untouched;
+              // preserves updatedAt like every other AI bookkeeping write
+              // here, since this isn't a user edit.
+              await prisma.notes.update({ where: { id: note.id }, data: { moodScores: Prisma.JsonNull } });
+              const migratedScores = await AiService.scoreMood(note.content, taskLogId);
+              await prisma.notes.update({
+                where: { id: note.id },
+                data: {
+                  updatedAt: note.updatedAt,
+                  ...(Object.keys(migratedScores).length > 0 && { moodScores: migratedScores }),
+                },
+              });
+              results.push({ type: 'success', content: `[mood-migrate] ${note.content.slice(0, 30)}`, timestamp: new Date().toISOString() });
               processedIds.add(note.id);
               current++;
             } else {
@@ -351,7 +390,7 @@ export class TagAuditJob extends BaseScheduleJob {
       }
 
       const finishMessage = notes.length === 0
-        ? 'Nothing needed processing (no untagged or broken notes found)'
+        ? 'Nothing needed processing (no untagged, broken, or old-format-mood notes found)'
         : `Tagged ${current}/${total} notes (${failedIds.size} failed)`;
       await logAiTaskFinish(taskLogId, 'success', finishMessage);
       return finalProgress;
