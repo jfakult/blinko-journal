@@ -319,12 +319,12 @@ async function seedDefaultAiConfig() {
   // without needing a model-specific toggle or extra request-layer
   // plumbing. Also dropped the old "avoid generic note-taking tags" /
   // "match the entry's language" rules -- simplification, not an oversight.
-  const journalTagsPrompt = `You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the specific topic/thing being discussed. Rules:
+  const journalTagsPrompt = `Answer briefly.
+  You are tagging entries in a personal voice journal. Read the entry and suggest 3 to 6 tags that capture whatever's most relevant -- people mentioned, places, feelings, the occasion, or the specific topic/thing being discussed. Rules:
 1. **Tag format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #mom, #home, #work-stress, #road-trip, #grateful). Never use slashes or any other category-prefix structure. A concrete noun or subject from the entry is just as valid a tag as an emotion or person.
 2. **Only tag what's actually present**: do not invent a tag for a category (person, place, occasion, etc.) just to cover it -- if the entry names no person, don't produce a people-ish tag; if it mentions no place, don't produce a place-ish tag. Every tag must be clearly grounded in what the entry actually says.
 3. **Response format**: return only the tags, comma-separated, each starting with #, no spaces between tags, no explanation, no code blocks or Markdown. Example: #mom,#home,#grateful,#roadtrip
-
-Answer briefly`;
+4. Answer briefly.`;
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');

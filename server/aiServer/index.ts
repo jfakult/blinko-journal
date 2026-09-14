@@ -522,7 +522,7 @@ export class AiService {
     const axesDescription = axes
       .map((axis) => axis.negativeLabel
         ? `${axis.positiveLabel} vs ${axis.negativeLabel} -- always include. Score 0-10: 0 = fully ${axis.negativeLabel}, 10 = fully ${axis.positiveLabel}, 5 = neutral or mixed.`
-        : `${axis.positiveLabel} -- only include if this feeling is genuinely present in the entry; skip it entirely if not.`)
+        : `${axis.positiveLabel}`)
       .join('\n');
     const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
     const input = `Entry content:\n${content}`;

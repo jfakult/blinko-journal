@@ -554,7 +554,8 @@ export class AiModelFactory {
       // "/no_think" + Ollama think:false approach -- simple, direct phrasing
       // tested to work as well or better, without needing a model-specific
       // toggle or extra request-layer plumbing).
-      return `You are a precise label classification expert, and you will generate precisely matched content labels based on the content. Rules:
+      return `Answer Briefly.
+    You are a precise label classification expert, and you will generate precisely matched content labels based on the content. Rules:
       1. **Core Selection Principle**: Select 3 to 6 tags that are most relevant to the content -- people, places, feelings, or the specific topic/thing being discussed. Only tag what's actually present in the content; don't invent a tag for a category just to cover it.
       2. **Tag Format**: every tag is a single word or, if it needs more than one word, hyphenated (e.g. #javascript, #web-development). Never use slashes or any other category-prefix/hierarchy structure. A concrete noun or subject from the content is just as valid a tag as an emotion or person.
       3. **Response Format**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript. Example: #JavaScript,#web-development,#frontend
@@ -609,7 +610,8 @@ export class AiModelFactory {
   // moods being user-editable over time) and tagAuditJob.ts's repair pass
   // for how already-scored notes get migrated off the old id-keyed format.
   static moodSystemPrompt(axesDescription: string): string {
-    return `You are an emotional-tone analysis expert for a personal journal. Below is a list of mood dimensions, each with its own instructions for when and how to score it.
+    return `Answer Briefly.
+You are an emotional-tone analysis expert for a personal journal. Below is a list of mood dimensions, each with its own instructions for when and how to score it.
 
 Mood dimensions:
 ${axesDescription}
@@ -618,11 +620,14 @@ Rules:
 1. Follow each dimension's own instructions above to decide whether to include it -- most say to only include it if genuinely present in the entry.
 2. When you do include a dimension, use the full range thoughtfully: a mild, passing feeling scores low (1-3), a clearly present but not overwhelming feeling scores mid-range (4-7), and only a genuinely intense, dominant feeling scores high (8-10). Don't default to 0 or 10 out of habit.
 3. Base every score only on what the entry actually expresses or implies, never on assumptions beyond the text.
-4. Respond with a JSON object keyed by each dimension's exact name (as given above), mapping to its score. Leave out any dimension its own instructions say to skip -- never include one at 0 just to show it's absent.
+4. Respond with a JSON object keyed by each dimension's exact name (as given above), mapping to its score. Leave out any dimension its own instructions say to skip -- never include one at 0 just to show it's absent (except for positive/negative).
+5. Always include the "positive" and "negative" dimension (only exception to rule 4, they can be 0 if not relevant).
+6. Answer briefly
 
 Sample output shape (the names and scores below are just illustrative -- use the real dimension names from the list above, and include only the ones that actually apply):
 {
   "positive": 7,
+  "negative": 0,
   "joy": 8,
   "excitement": 5,
   "anxiety": 2
