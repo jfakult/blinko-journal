@@ -1,4 +1,4 @@
-import { router, authProcedure } from '../middleware';
+import { router, authProcedure, superAdminAuthMiddleware } from '../middleware';
 import { z } from 'zod';
 import { AiService } from '@server/aiServer';
 import { prisma } from '../prisma';
@@ -101,15 +101,19 @@ export const aiRouter = router({
     }))
     .mutation(async function* ({ input, ctx }) {
       try {
-        const { question, conversations, withTools = false, withOnline = false, withRAG = true, systemPrompt } = input
+        const { question, conversations, withTools = false, systemPrompt } = input
         let _conversations = conversations as CoreMessage[]
+        // CUSTOM-JOURNAL: RAG and web search are the whole point of this chat
+        // tab for a single-user journal -- always on, not client-toggleable.
+        // (withTools, which also grants note edit/delete/scheduling tools,
+        // stays opt-in.)
         const { result: responseStream, notes } = await AiService.completions({
           question,
           conversations: _conversations,
           ctx,
           withTools,
-          withOnline,
-          withRAG,
+          withOnline: true,
+          withRAG: true,
           systemPrompt
         })
         yield { notes }
@@ -343,7 +347,13 @@ export const aiRouter = router({
       return await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
     }),
 
+  // CUSTOM-JOURNAL: create/update/delete are superadmin-only -- the mood
+  // dimensions AI scores every entry against shouldn't be changeable by any
+  // authenticated account, just whoever administers this journal. Reading
+  // the list (moodAxisList above) stays open to everyone -- seeing what's
+  // being scored is harmless, only changing it isn't.
   moodAxisCreate: authProcedure
+    .use(superAdminAuthMiddleware)
     .input(z.object({
       positiveLabel: z.string().min(1),
       negativeLabel: z.string().nullable().optional(),
@@ -356,6 +366,7 @@ export const aiRouter = router({
     }),
 
   moodAxisUpdate: authProcedure
+    .use(superAdminAuthMiddleware)
     .input(z.object({
       id: z.number(),
       positiveLabel: z.string().min(1).optional(),
@@ -369,6 +380,7 @@ export const aiRouter = router({
     }),
 
   moodAxisDelete: authProcedure
+    .use(superAdminAuthMiddleware)
     .input(z.object({ id: z.number() }))
     .output(z.boolean())
     .mutation(async ({ input }) => {

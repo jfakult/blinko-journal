@@ -130,8 +130,16 @@ export class EditorStore {
     }
   }
 
+  // CUSTOM-JOURNAL: gates both the send button (SendButton checks this to
+  // render disabled) and the keyboard-shortcut submit path (handleSend's own
+  // `if (!this.canSend) return` below) from a single source, so there's no
+  // way to bypass the empty-entry guard via a hotkey the button's disabled
+  // state doesn't otherwise block. Was `vditor?.getValue() != ''` -- an
+  // exact-empty-string check, so an entry containing only whitespace/blank
+  // lines (all real text deleted, but vditor left a trailing newline or two)
+  // read as "non-empty" and could still be sent/saved. .trim() closes that.
   get canSend() {
-    return this.files?.every(i => !i?.uploadPromise?.loading?.value) && (this.files?.length != 0 || this.vditor?.getValue() != '')
+    return this.files?.every(i => !i?.uploadPromise?.loading?.value) && (this.files?.length != 0 || (this.vditor?.getValue() ?? '').trim() != '')
   }
 
   get blinko() {

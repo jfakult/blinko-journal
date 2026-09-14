@@ -35,46 +35,6 @@ const cardIcons = [
     },
   },
   {
-    tooltip: 'knowledge-base-search',
-    icon: 'hugeicons:search-list-01',
-    size: 20,
-    containerSize: 30,
-    onClick: () => {
-      RootStore.Get(AiStore).withRAG.save(!RootStore.Get(AiStore).withRAG.value);
-    },
-    classNames: () => {
-      return RootStore.Get(AiStore).withRAG.value
-        ? {
-          base: 'bg-primary hover:opacity-80 hover:bg-primary ',
-          icon: 'text-primary-foreground font-bold',
-        }
-        : {
-          base: 'bg-transparent text-foreground',
-          icon: 'text-foreground',
-        };
-    },
-  },
-  {
-    tooltip: 'online-search',
-    icon: 'hugeicons:global-search',
-    size: 20,
-    containerSize: 30,
-    onClick: () => {
-      RootStore.Get(AiStore).withOnline.save(!RootStore.Get(AiStore).withOnline.value);
-    },
-    classNames: () => {
-      return RootStore.Get(AiStore).withOnline.value
-        ? {
-          base: 'bg-primary hover:opacity-80 hover:bg-primary ',
-          icon: 'text-primary-foreground font-bold',
-        }
-        : {
-          base: 'bg-transparent text-foreground',
-          icon: 'text-foreground',
-        };
-    },
-  },
-  {
     tooltip: 'add-tools-to-model',
     icon: 'hugeicons:ai-chemistry-02',
     size: 20,

@@ -51,6 +51,11 @@ services:
       # pointing at a container that doesn't exist yet.
       WHISPER_BASE_URL: ${WHISPER_BASE_URL:-}
       WHISPER_MODEL: ${WHISPER_MODEL:-Systran/faster-whisper-medium}
+      # CUSTOM-JOURNAL: self-hosted SearXNG web search backend (see seed.ts's
+      # seedDefaultAiConfig) - seeds config.searxngUrl on first boot so web
+      # search works without a trip through AI Settings. Adjust the host if
+      # SearXNG isn't reachable at this hostname from blinko-website's network.
+      SEARXNG_QUERY_URL: ${SEARXNG_QUERY_URL:-http://searxng:8080/search?q=<query>}
     # depends_on:
     #   postgres:
     #     condition: service_healthy

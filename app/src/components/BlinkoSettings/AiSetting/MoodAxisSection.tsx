@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/trpc';
 import { showTipsDialog } from '@/components/Common/TipsDialog';
+import { RootStore } from '@/store';
+import { UserStore } from '@/store/user';
 
 interface MoodAxis {
   id: number;
@@ -26,6 +28,7 @@ interface MoodAxis {
 // to avoid (see aiModelFactory.ts's comment there).
 export const MoodAxisSection = observer(function MoodAxisSection() {
   const { t } = useTranslation();
+  const user = RootStore.Get(UserStore);
   const [axes, setAxes] = useState<MoodAxis[]>([]);
   const [isBipolar, setIsBipolar] = useState(false);
   const [positiveLabel, setPositiveLabel] = useState('');
@@ -79,45 +82,53 @@ export const MoodAxisSection = observer(function MoodAxisSection() {
               <span className="font-medium text-sm">
                 {axis.negativeLabel ? `${axis.positiveLabel} ↔ ${axis.negativeLabel}` : axis.positiveLabel}
               </span>
-              <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => handleDelete(axis)}>
-                <Icon icon="mingcute:delete-2-line" width="16" height="16" />
-              </Button>
+              {user.isSuperAdmin && (
+                <Button isIconOnly size="sm" variant="light" color="danger" onPress={() => handleDelete(axis)}>
+                  <Icon icon="mingcute:delete-2-line" width="16" height="16" />
+                </Button>
+              )}
             </div>
           ))}
           {axes.length === 0 && <div className="text-desc text-xs">{t('no-mood-axes-yet')}</div>}
         </div>
 
-        <div className="flex flex-col gap-2 border-t border-default-200 pt-3">
-          <div className="flex items-center gap-2">
-            <Switch size="sm" isSelected={isBipolar} onValueChange={setIsBipolar} />
-            <span className="text-sm">{t('bipolar-axis')}</span>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Input
-              size="sm"
-              placeholder={t('positive-label-placeholder')}
-              value={positiveLabel}
-              onValueChange={setPositiveLabel}
-            />
-            {isBipolar && (
+        {/* CUSTOM-JOURNAL: creating/editing/deleting axes is superadmin-only
+            (see ai.ts's moodAxisCreate/Update/Delete, gated server-side too --
+            this isn't just a hidden button) -- everyone can still see the
+            list above, only changing it is restricted. */}
+        {user.isSuperAdmin && (
+          <div className="flex flex-col gap-2 border-t border-default-200 pt-3">
+            <div className="flex items-center gap-2">
+              <Switch size="sm" isSelected={isBipolar} onValueChange={setIsBipolar} />
+              <span className="text-sm">{t('bipolar-axis')}</span>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
               <Input
                 size="sm"
-                placeholder={t('negative-label-placeholder')}
-                value={negativeLabel}
-                onValueChange={setNegativeLabel}
+                placeholder={t('positive-label-placeholder')}
+                value={positiveLabel}
+                onValueChange={setPositiveLabel}
               />
-            )}
-            <Button
-              size="sm"
-              color="primary"
-              isDisabled={!positiveLabel.trim() || isSubmitting}
-              onPress={handleAdd}
-              startContent={<Icon icon="mingcute:add-line" width="16" height="16" />}
-            >
-              {t('add-mood-axis')}
-            </Button>
+              {isBipolar && (
+                <Input
+                  size="sm"
+                  placeholder={t('negative-label-placeholder')}
+                  value={negativeLabel}
+                  onValueChange={setNegativeLabel}
+                />
+              )}
+              <Button
+                size="sm"
+                color="primary"
+                isDisabled={!positiveLabel.trim() || isSubmitting}
+                onPress={handleAdd}
+                startContent={<Icon icon="mingcute:add-line" width="16" height="16" />}
+              >
+                {t('add-mood-axis')}
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </CollapsibleCard>
   );

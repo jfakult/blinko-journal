@@ -65,9 +65,7 @@ export class AiStore implements Store {
   isChatting = false;
   isAnswering = false;
   input = '';
-  withRAG = new StorageState({ key: 'withRAG', value: true, default: true });
   withTools = new StorageState({ key: 'withTools', value: false, default: false });
-  withOnline = new StorageState({ key: 'withOnline', value: false, default: false });
   referencesNotes: BlinkoItem[] = [];
   currentMessageResult: currentMessageResult = {
     id: 0,
@@ -131,9 +129,7 @@ export class AiStore implements Store {
           {
             question: userQuestion,
             conversations: filteredChatConversation,
-            withRAG: this.withRAG.value ?? false,
             withTools: this.withTools.value ?? false,
-            withOnline: this.withOnline.value ?? false,
           },
           { signal: this.aiChatabortController.signal },
         );

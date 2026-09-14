@@ -295,7 +295,16 @@ export class AiService {
       let ragNote: any[] = [];
       let ragNoteString = '';
       if (withRAG) {
-        const { notes } = await AiModelFactory.queryVector(question, Number(ctx.id));
+        // CUSTOM-JOURNAL: withRAG is now forced true from the router (see
+        // ai.ts) rather than a client-toggleable flag, so a misconfigured/
+        // missing embedding model must degrade to "no RAG" instead of
+        // throwing and breaking the whole chat response.
+        const notes = await AiModelFactory.queryVector(question, Number(ctx.id))
+          .then((r) => r.notes)
+          .catch((error) => {
+            console.error('Error in RAG queryVector:', error);
+            return [];
+          });
         ragNote = notes;
         if (notes.length > 0) {
           const entries = notes
@@ -801,7 +810,7 @@ export class AiService {
         // Get custom prompt and replace variables
         let customPrompt = config.aiCustomPrompt || 'Analyze the following note content and provide feedback.';
         customPrompt = customPrompt.replace('{tags}', tagsList).replace('{note}', note.content);
-        const withOnlineSearch = !!config.tavilyApiKey;
+        const withOnlineSearch = !!config.tavilyApiKey || !!config.searxngUrl;
         // Process with AI using BaseChatAgent with tools
 
         const agent = await AiModelFactory.BaseChatAgent({

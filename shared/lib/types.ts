@@ -113,6 +113,7 @@ export const ZConfigKey = z.union([
   z.literal('oauth2Providers'),
   z.literal('tavilyApiKey'),
   z.literal('tavilyMaxResult'),
+  z.literal('searxngUrl'),
   z.literal('isUseAiPostProcessing'),
   z.literal('aiCommentPrompt'),
   z.literal('aiTagsPrompt'),
@@ -208,6 +209,9 @@ export const ZConfigSchema = z.object({
   isHiddenNotification: z.boolean().optional(),
   tavilyApiKey: z.any().optional(),
   tavilyMaxResult: z.any().optional(),
+  // CUSTOM-JOURNAL: self-hosted SearXNG as a Tavily-free web search backend
+  // -- see webSearchTool, which prefers this over tavilyApiKey when set.
+  searxngUrl: z.any().optional(),
   isUseAiPostProcessing: z.boolean().optional(),
   aiCommentPrompt: z.string().optional(),
   aiTagsPrompt: z.string().optional(),

@@ -153,6 +153,9 @@ async function runMigrationOnce(migrationId: string, fn: () => Promise<void>): P
  *   voiceModelId get wired up — safe to leave unset until that service is
  *   actually deployed, and setting it later + restarting is enough to
  *   finish the setup then, no code changes needed.
+ * - SEARXNG_QUERY_URL (optional) — e.g. http://searxng:8080/search?q=<query>.
+ *   Seeds config.searxngUrl via setConfigIfMissing, so an existing value set
+ *   through AI Settings (or a previous env-seeded one) is never overwritten.
  */
 async function seedDefaultAiConfig() {
   const PLACEHOLDER_HOST = 'REPLACE_WITH_OLLAMA_HOST';
@@ -296,6 +299,15 @@ async function seedDefaultAiConfig() {
     await setConfigIfMissing('voiceModelId', voiceModel.id);
   } else {
     console.log('ℹ WHISPER_BASE_URL not set — skipping voice transcription setup (voiceModelId left unconfigured). Set it and restart once the Whisper service is deployed.');
+  }
+
+  // --- SearXNG (self-hosted web search backend, used by webSearchTool instead
+  // of Tavily when set) — optional ---
+  const searxngQueryUrl = process.env.SEARXNG_QUERY_URL;
+  if (searxngQueryUrl) {
+    await setConfigIfMissing('searxngUrl', searxngQueryUrl);
+  } else {
+    console.log('ℹ SEARXNG_QUERY_URL not set — web search falls back to Tavily (tavilyApiKey) if configured in AI Settings, otherwise stays disabled.');
   }
 
   // CUSTOM-JOURNAL: freeform, flat, grounded-only tags -- no category

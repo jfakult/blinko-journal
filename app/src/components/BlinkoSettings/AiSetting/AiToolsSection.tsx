@@ -15,6 +15,7 @@ export const AiToolsSection = observer(() => {
   const blinko = RootStore.Get(BlinkoStore);
   const isPc = useMediaQuery('(min-width: 768px)');
 
+  const [searxngUrl, setSearxngUrl] = useState('');
   const [tavilyApiKey, setTavilyApiKey] = useState('');
   const [tavilyMaxResult, setTavilyMaxResult] = useState(5);
 
@@ -24,6 +25,7 @@ export const AiToolsSection = observer(() => {
 
   useEffect(() => {
     if (blinko.config.value) {
+      setSearxngUrl(blinko.config.value.searxngUrl || '');
       setTavilyApiKey(blinko.config.value.tavilyApiKey || '');
       setTavilyMaxResult(Number(blinko.config.value.tavilyMaxResult) || 5);
     }
@@ -40,6 +42,31 @@ export const AiToolsSection = observer(() => {
 
   return (
     <CollapsibleCard icon="hugeicons:ai-chemistry-02" title={t('ai-tools')}>
+      <Item
+        leftContent={
+          <div className="flex flex-col gap-1">
+            <>{t('searxng-url')}</>
+            <div className="text-[12px] text-default-400">{t('searxng-url-desc')}</div>
+          </div>
+        }
+        rightContent={
+          <Input
+            size="sm"
+            label="SearXNG URL"
+            variant="bordered"
+            className="w-full md:w-[300px]"
+            placeholder="http://searxng:8080"
+            value={searxngUrl}
+            onChange={(e) => {
+              setSearxngUrl(e.target.value);
+            }}
+            onBlur={(e) => {
+              updateConfig('searxngUrl', e.target.value);
+            }}
+          />
+        }
+      />
+
       <Item
         leftContent={<>{t('tavily-api-key')}</>}
         rightContent={
