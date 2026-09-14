@@ -623,7 +623,6 @@ Rules:
 Sample output shape (the names and scores below are just illustrative -- use the real dimension names from the list above, and include only the ones that actually apply):
 {
   "positive": 7,
-  "negative": 3,
   "joy": 8,
   "excitement": 5,
   "anxiety": 2

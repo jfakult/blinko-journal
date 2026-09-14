@@ -13,10 +13,17 @@ interface MoodAxis {
   negativeLabel?: string | null;
 }
 
-// CUSTOM-JOURNAL: manage the mood dimensions (emotional valence + specific
-// emotions) AI scores every note against, 0-100 each -- see prisma.moodAxis
-// and AiService.scoreMood. A bipolar axis has both labels (e.g.
-// positive/negative); a unipolar one is intensity-only (e.g. "joy").
+// CUSTOM-JOURNAL: manage the mood dimensions AI scores every note against,
+// 0-100 each -- see prisma.moodAxis and AiService.scoreMood. Every axis
+// always has a positive-direction label (e.g. "joy") -- that's the field
+// that's actually used to identify and key the axis, and it's what's shown
+// by default. A negative/opposite label is optional, for the rarer genuine
+// spectrum case (e.g. positive/negative valence); adding one makes the axis
+// bipolar (always-scored, 0-10 spans the two opposites) instead of unipolar
+// (only scored when actually present, 0 = absent). Defaults to unipolar --
+// most emotions don't have a natural opposite worth naming, and forcing one
+// reintroduces exactly the prompt ambiguity moodSystemPrompt was simplified
+// to avoid (see aiModelFactory.ts's comment there).
 export const MoodAxisSection = observer(function MoodAxisSection() {
   const { t } = useTranslation();
   const [axes, setAxes] = useState<MoodAxis[]>([]);
@@ -88,7 +95,7 @@ export const MoodAxisSection = observer(function MoodAxisSection() {
           <div className="flex flex-col sm:flex-row gap-2">
             <Input
               size="sm"
-              placeholder={isBipolar ? t('positive-label-placeholder') : t('emotion-label-placeholder')}
+              placeholder={t('positive-label-placeholder')}
               value={positiveLabel}
               onValueChange={setPositiveLabel}
             />
