@@ -519,10 +519,28 @@ export class AiService {
     // CUSTOM-JOURNAL: no longer needs to spell out each axis's id -- the
     // schema key *is* the name now, so there's no id-to-label mapping for
     // the model to track at all.
+    //
+    // CUSTOM-JOURNAL: "positivity"/"negativity" are called out here by name
+    // (matching moodSystemPrompt's rule 5, which requires them by the same
+    // literal names) so the per-axis list agrees with the Rules section
+    // instead of silently contradicting it -- the earlier bipolar-vs-
+    // unipolar bug was exactly this shape of mismatch (the abstract rule
+    // said one thing, the per-axis list said another) and it's what sent
+    // the model into an unproductive reasoning loop. This does hardcode an
+    // assumption that axes with these exact names exist; if they're ever
+    // renamed or deleted, this quietly stops calling them out (falls back
+    // to ordinary unipolar treatment) rather than breaking.
+    const ALWAYS_INCLUDE_AXIS_NAMES = new Set(['positivity', 'negativity']);
     const axesDescription = axes
-      .map((axis) => axis.negativeLabel
-        ? `${axis.positiveLabel} vs ${axis.negativeLabel} -- always include. Score 0-10: 0 = fully ${axis.negativeLabel}, 10 = fully ${axis.positiveLabel}, 5 = neutral or mixed.`
-        : `${axis.positiveLabel}`)
+      .map((axis) => {
+        if (axis.negativeLabel) {
+          return `${axis.positiveLabel} vs ${axis.negativeLabel} -- always include. Score 0-10: 0 = fully ${axis.negativeLabel}, 10 = fully ${axis.positiveLabel}, 5 = neutral or mixed.`;
+        }
+        if (ALWAYS_INCLUDE_AXIS_NAMES.has(axis.positiveLabel)) {
+          return `${axis.positiveLabel} -- always include, even if the score is 0.`;
+        }
+        return axis.positiveLabel;
+      })
       .join('\n');
     const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
     const input = `Entry content:\n${content}`;
@@ -970,12 +988,21 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     try {
       let noteContent = note.content;
       let noteUpdatedAt = note.updatedAt;
-      if (await AiService.hasPendingAudioTranscription(noteId)) {
-        await AiService.transcribeAndAppend({ noteId, accountId: note.accountId! });
-        const refreshed = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, updatedAt: true } });
-        noteContent = refreshed?.content ?? note.content;
-        noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
-      }
+      // CUSTOM-JOURNAL: always call this, forced -- unconditionally, not
+      // gated on hasPendingAudioTranscription. That check only sees
+      // attachments never yet attempted (transcribedAt IS NULL); any
+      // attachment that was ever attempted before (even one that produced
+      // nothing, e.g. before the AudioProvider fix) would silently look
+      // "done" and get skipped, so "Re-run AI analysis" could tag/score a
+      // note whose actual voice content was never really transcribed.
+      // force:true retranscribes regardless of transcribedAt, guaranteeing
+      // the real transcript exists before anything gets sent to the tag/
+      // mood models below. transcribeAndAppend itself no-ops cleanly (logs
+      // why, doesn't throw) if the note has no audio attachment at all.
+      await AiService.transcribeAndAppend({ noteId, accountId: note.accountId!, force: true });
+      const refreshed = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, updatedAt: true } });
+      noteContent = refreshed?.content ?? note.content;
+      noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
 
       try {
         const suggestedTags = await AiService.suggestTags(noteContent, taskLogId);
@@ -1215,27 +1242,60 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     return attachments.some((a) => AiService.isAudio(a.name || a.path));
   }
 
-  // CUSTOM-JOURNAL: transcribes every not-yet-transcribed audio attachment on
-  // a note and appends each transcript under its own "## Audio Transcription"
-  // heading. Shared by note.ts's create/update paths and tagAuditJob.ts's
-  // backfill pass.
-  static async transcribeAndAppend({ noteId, accountId }: { noteId: number; accountId: number }): Promise<{ transcribedAny: boolean }> {
+  // CUSTOM-JOURNAL: transcribes audio attachments on a note and appends each
+  // transcript under its own "## Audio Transcription" heading. Two modes:
+  // - force=false (default): only attachments never yet attempted
+  //   (transcribedAt IS NULL). Used by the automatic paths -- note.ts's
+  //   create/update, tagAuditJob.ts's backfill, reanalyzeNote's normal
+  //   check -- where retrying an attachment forever after one failed
+  //   attempt would just waste calls on a permanently-broken file.
+  // - force=true: every audio attachment on the note, regardless of
+  //   transcribedAt. Used by the explicit "Transcribe" menu action (and
+  //   reanalyzeNote, per explicit request that it guarantee a transcript
+  //   exists before tagging/scoring) -- transcribedAt getting set on ANY
+  //   attempt (even one that produced nothing, e.g. before the
+  //   AudioProvider fix) meant a note whose audio never actually got
+  //   transcribed looked permanently "done" to hasPendingAudioTranscription
+  //   forever after, so clicking "Transcribe" again silently did nothing:
+  //   no pending attachments found, immediate no-op return, before
+  //   logAiTaskStart even ran -- a toast that flashes and vanishes with
+  //   zero log/network evidence, exactly matching what force fixes. Also
+  //   logs a task (with a real reason) for the "nothing to do" cases when
+  //   force is set, since an explicit user action deserves visible feedback
+  //   either way -- the non-forced/automatic paths stay silent on purpose,
+  //   they're not something a person is watching for a result.
+  static async transcribeAndAppend({ noteId, accountId, force = false }: { noteId: number; accountId: number; force?: boolean }): Promise<{ transcribedAny: boolean; message?: string }> {
     const config = await AiModelFactory.globalConfig();
-    if (!config.voiceModelId) return { transcribedAny: false };
+    if (!config.voiceModelId) {
+      const message = 'No voice/transcription model configured (AI Settings -> Voice)';
+      if (force) {
+        const taskLogId = await logAiTaskStart({ accountId, taskType: 'transcription', noteId, message: 'Manual transcribe requested' });
+        await logAiTaskFinish(taskLogId, 'error', message);
+      }
+      return { transcribedAny: false, message };
+    }
 
-    const pendingAttachments = (await prisma.attachments.findMany({ where: { noteId, transcribedAt: null } }))
+    const audioAttachments = (await prisma.attachments.findMany({ where: { noteId } }))
       .filter((a) => AiService.isAudio(a.name || a.path));
-    if (pendingAttachments.length === 0) return { transcribedAny: false };
+    const targetAttachments = force ? audioAttachments : audioAttachments.filter((a) => a.transcribedAt == null);
+    if (targetAttachments.length === 0) {
+      const message = 'No audio attachment found on this note';
+      if (force) {
+        const taskLogId = await logAiTaskStart({ accountId, taskType: 'transcription', noteId, message: 'Manual transcribe requested' });
+        await logAiTaskFinish(taskLogId, 'error', message);
+      }
+      return { transcribedAny: false, message };
+    }
 
     const taskLogId = await logAiTaskStart({
       accountId,
       taskType: 'transcription',
       noteId,
-      message: `${pendingAttachments.length} audio attachment(s)`,
+      message: `${targetAttachments.length} audio attachment(s)${force ? ' (forced)' : ''}`,
     });
 
     const { success, transcriptions, error: batchError } = await AiService.processNoteAudioAttachments({
-      attachments: pendingAttachments,
+      attachments: targetAttachments,
       voiceModelId: config.voiceModelId,
       accountId,
       taskLogId,
@@ -1245,7 +1305,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     // success, so a single bad audio file can't permanently block tagging
     // (and doesn't get retried forever by the nightly tag audit).
     await prisma.attachments.updateMany({
-      where: { id: { in: pendingAttachments.map((a) => a.id) } },
+      where: { id: { in: targetAttachments.map((a) => a.id) } },
       data: { transcribedAt: new Date() },
     });
 
@@ -1259,11 +1319,12 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
           ? 'No attachments were recognized as audio to transcribe'
           : 'Transcription produced no text';
       await logAiTaskFinish(taskLogId, 'error', message);
-      return { transcribedAny: false };
+      return { transcribedAny: false, message };
     }
     if (transcriptions.every((t) => !t.transcription)) {
-      await logAiTaskFinish(taskLogId, 'error', 'Every attachment transcribed to an empty string -- check the voice model/provider config (see per-call log entries above)');
-      return { transcribedAny: false };
+      const message = 'Every attachment transcribed to an empty string -- check the voice model/provider config';
+      await logAiTaskFinish(taskLogId, 'error', `${message} (see per-call log entries above)`);
+      return { transcribedAny: false, message };
     }
 
     const heading = transcriptions.length > 1 ? (i: number) => `Audio Transcription ${i + 1}` : () => 'Audio Transcription';
@@ -1283,7 +1344,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       const current = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, createdAt: true, updatedAt: true } });
       if (!current) {
         await logAiTaskFinish(taskLogId, 'error', 'Note no longer exists');
-        return { transcribedAny: false };
+        return { transcribedAny: false, message: 'Note no longer exists' };
       }
 
       const newContent = current.content + appended;
@@ -1304,6 +1365,6 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
 
     console.error(`[transcription] failed to append transcript to note ${noteId} after ${MAX_ATTEMPTS} attempts (concurrent writes)`);
     await logAiTaskFinish(taskLogId, 'error', `Failed after ${MAX_ATTEMPTS} attempts (concurrent writes)`);
-    return { transcribedAny: false };
+    return { transcribedAny: false, message: `Failed after ${MAX_ATTEMPTS} attempts (concurrent writes)` };
   }
 }

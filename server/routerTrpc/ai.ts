@@ -217,13 +217,17 @@ export const aiRouter = router({
   // CUSTOM-JOURNAL: standalone "Transcribe" action -- transcribeAndAppend
   // already existed (called internally from note create/update), just never
   // had its own callable endpoint for an explicit "transcribe this note's
-  // audio again" click.
+  // audio again" click. force:true -- an explicit click means "retry this,"
+  // not "only if it's never been attempted" (the default/automatic-path
+  // behavior); without force, a note whose audio attachment already has
+  // transcribedAt set (from any prior attempt, including one that produced
+  // nothing) would silently no-op every time.
   transcribeNote: authProcedure
     .input(z.object({
       noteId: z.number()
     }))
     .mutation(async ({ input, ctx }) => {
-      return await AiService.transcribeAndAppend({ noteId: input.noteId, accountId: Number(ctx.id) });
+      return await AiService.transcribeAndAppend({ noteId: input.noteId, accountId: Number(ctx.id), force: true });
     }),
   autoEmoji: authProcedure
     .input(z.object({

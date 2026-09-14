@@ -617,17 +617,17 @@ Mood dimensions:
 ${axesDescription}
 
 Rules:
-1. Follow each dimension's own instructions above to decide whether to include it -- most say to only include it if genuinely present in the entry.
-2. When you do include a dimension, use the full range thoughtfully: a mild, passing feeling scores low (1-3), a clearly present but not overwhelming feeling scores mid-range (4-7), and only a genuinely intense, dominant feeling scores high (8-10). Don't default to 0 or 10 out of habit.
+1. Only include a dimension if it is genuinely present in the entry. No need to add a dimension if it's value is 0.
+2. For each included dimension be thoughtful: a mild, passing feeling scores low (1-3), a clearly present but not overwhelming feeling scores mid-range (4-7), and only a genuinely intense, dominant feeling scores high (8-10). Don't default to 0 or 10 out of habit.
 3. Base every score only on what the entry actually expresses or implies, never on assumptions beyond the text.
-4. Respond with a JSON object keyed by each dimension's exact name (as given above), mapping to its score. Leave out any dimension its own instructions say to skip -- never include one at 0 just to show it's absent (except for positive/negative).
-5. Always include the "positive" and "negative" dimension (only exception to rule 4, they can be 0 if not relevant).
+4. Respond with a JSON object keyed by each dimension's exact name (as given above), mapping to its score.
+5. Always include the "positivity" and "negativity" dimensions, even if their score is 0. They are critically important for this analysis.
 6. Answer briefly
 
 Sample output shape (the names and scores below are just illustrative -- use the real dimension names from the list above, and include only the ones that actually apply):
 {
-  "positive": 7,
-  "negative": 0,
+  "positivity": 7,
+  "negativity": 0,
   "joy": 8,
   "excitement": 5,
   "anxiety": 2

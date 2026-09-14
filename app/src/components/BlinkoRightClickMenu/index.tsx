@@ -295,8 +295,19 @@ const handleTranscribe = async () => {
   if (!noteId) return
   try {
     toast.loading(i18n.t('transcribing-audio'))
-    await api.ai.transcribeNote.mutate({ noteId })
+    const result = await api.ai.transcribeNote.mutate({ noteId })
     toast.dismiss()
+    // CUSTOM-JOURNAL: previously just dismissed the loading toast either
+    // way -- a note whose audio attachment was already marked transcribed
+    // (from any prior attempt, even one that produced nothing) made this
+    // silently no-op with zero visible feedback: a toast that flashed and
+    // vanished, no error, no log entry, nothing to go on. transcribeNote
+    // now forces a retry and returns a real reason on failure -- surface it.
+    if (!result.transcribedAny) {
+      toast.error(result.message || i18n.t('operation-failed'))
+      return
+    }
+    toast.success(i18n.t('your-changes-have-been-saved'))
     blinko.updateTicker++
   } catch (error: any) {
     toast.dismiss()
