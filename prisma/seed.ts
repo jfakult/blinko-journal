@@ -328,7 +328,7 @@ async function seedDefaultAiConfig() {
 
   await setConfigIfMissing('isUseAiPostProcessing', true);
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
-  await forceSetConfigOnce('2026-09-18-answer-briefly-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
+  await forceSetConfigOnce('2026-09-19-answer-briefly-lead-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
 
   // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
   // entry's date should read as "when I wrote this," not "when it was last
