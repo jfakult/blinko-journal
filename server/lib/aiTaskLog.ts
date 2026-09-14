@@ -59,6 +59,33 @@ export async function logAiTaskFinish(
 // blow up a task log row indefinitely.
 const MAX_CALL_TEXT_LENGTH = 20000;
 
+// CUSTOM-JOURNAL: surfaces a reasoning model's "thinking" content in the
+// logged output, clearly separated from the actual answer -- this is
+// exactly what would have made the earlier mood-scoring failure (the model
+// burning its whole budget stuck in a reasoning loop over an inapplicable
+// "bipolar" rule, producing no JSON at all) immediately diagnosable from
+// the log instead of requiring raw Ollama server logs to spot. Two sources,
+// tried in order: (1) a structured `reasoning` field some providers/SDKs
+// return separately from the answer text (checked by callers, passed in
+// here as-is), (2) inline <think>...</think> (or <thinking>...</thinking>)
+// tags some models -- including Qwen3/3.5 over Ollama when thinking isn't
+// suppressed -- emit directly inside the text itself. In the inline case,
+// the thinking block is moved out of the answer and into its own section
+// rather than left in place, so the "actual answer" portion reads cleanly.
+export function formatOutputWithThinking(text: string, reasoning?: string | null): string {
+  let clean = text ?? '';
+  let thinking = reasoning?.trim() || null;
+  if (!thinking) {
+    const match = clean.match(/<think(?:ing)?>([\s\S]*?)<\/think(?:ing)?>/i);
+    if (match) {
+      thinking = match[1].trim();
+      clean = (clean.slice(0, match.index) + clean.slice(match.index! + match[0].length)).trim();
+    }
+  }
+  if (!thinking) return clean;
+  return `${clean}\n\n####THINKING####\n${thinking}\n####END THINKING####`;
+}
+
 export interface AiTaskCallRecord {
   agent: string;
   provider?: string | null;
@@ -100,7 +127,7 @@ export async function logAiTaskCall(logId: number | null, call: AiTaskCallRecord
 // the call record) so callers keep their existing try/catch behavior --
 // this only adds observability, it never swallows an error the caller
 // would otherwise have seen.
-export async function callAgentWithLog<T extends { text: string }>({
+export async function callAgentWithLog<T extends { text: string; reasoning?: string | null }>({
   taskLogId,
   agent,
   provider,
@@ -126,7 +153,7 @@ export async function callAgentWithLog<T extends { text: string }>({
       finishedAt: new Date().toISOString(),
       durationMs: Date.now() - startedAt.getTime(),
       input,
-      output: result.text ?? '',
+      output: formatOutputWithThinking(result.text ?? '', (result as any)?.reasoning),
     });
     return result;
   } catch (error: any) {

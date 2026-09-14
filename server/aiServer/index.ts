@@ -20,7 +20,7 @@ import dayjs from '@shared/lib/dayjs';
 import { RebuildEmbeddingJob } from '../jobs/rebuildEmbeddingJob';
 
 import { getAllPathTags, syncNoteTagsFromContent } from '@server/lib/helper';
-import { logAiTaskStart, logAiTaskFinish, callAgentWithLog, logAiTaskCall } from '@server/lib/aiTaskLog';
+import { logAiTaskStart, logAiTaskFinish, callAgentWithLog, logAiTaskCall, formatOutputWithThinking } from '@server/lib/aiTaskLog';
 import { commentWebhookInclude, sendCommentWebhook } from '@server/lib/commentWebhook';
 import { LibSQLVector } from '@mastra/libsql';
 import { RuntimeContext } from "@mastra/core/di";
@@ -357,12 +357,14 @@ export class AiService {
         { role: 'user' as const, content: `This is the note content: ${note.content}` },
       ];
       const modelInfo = await AiService.#getPostProcessingModelInfo();
+      const systemPrompt = AiModelFactory.getAgentSystemPrompt(agent);
+      const rawInput = messages.map((m) => m.content).join('\n\n');
       const result = await callAgentWithLog({
         taskLogId,
         agent: 'CommentAgent',
         provider: modelInfo.provider,
         modelTitle: modelInfo.title,
-        input: messages.map((m) => m.content).join('\n\n'),
+        input: systemPrompt ? `[System prompt]\n${systemPrompt}\n\n[Input]\n${rawInput}` : rawInput,
         run: () => agent.generate(messages),
       });
 
@@ -437,12 +439,17 @@ export class AiService {
     // #people tag on an entry that names no one.
     const input = `Note content:\n${content}`;
     const modelInfo = await AiService.#getPostProcessingModelInfo(config);
+    // CUSTOM-JOURNAL: the AI Task Log used to only show `input` (the note
+    // content) -- logging the system prompt too so what actually shaped the
+    // response is visible, not just what was fed in per-call.
+    const systemPrompt = AiModelFactory.getAgentSystemPrompt(tagAgent);
+    const loggedInput = systemPrompt ? `[System prompt]\n${systemPrompt}\n\n[Input]\n${input}` : input;
     const result = await callAgentWithLog({
       taskLogId,
       agent: 'TagAgent',
       provider: modelInfo.provider,
       modelTitle: modelInfo.title,
-      input,
+      input: loggedInput,
       run: () => tagAgent.generate(input),
     });
     return result.text.split(',').map((tag: string) => tag.trim()).filter(Boolean).slice(0, 5);
@@ -486,13 +493,19 @@ export class AiService {
     // CUSTOM-JOURNAL: spells out each axis's id explicitly (not just its
     // label), and whether it's always-include (bipolar) or only-if-present
     // (unipolar) -- see moodSystemPrompt's comment for why.
+    const hasBipolarAxis = axes.some((axis) => !!axis.negativeLabel);
     const axesDescription = axes
       .map((axis) => axis.negativeLabel
         ? `${axis.id}: ${axis.positiveLabel}/${axis.negativeLabel} (bipolar -- always include; 0 = fully ${axis.negativeLabel}, 100 = fully ${axis.positiveLabel}, 50 = neutral/mixed)`
         : `${axis.id}: ${axis.positiveLabel} (only include if genuinely present above 0; omit entirely if absent from the entry)`)
       .join('\n');
-    const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription);
+    const systemPrompt = AiModelFactory.moodSystemPrompt(axesDescription, hasBipolarAxis);
     const input = `Entry content:\n${content}`;
+    // CUSTOM-JOURNAL: logged separately from `input` (which stays just the
+    // entry content, actually passed to generateObject/generateText's
+    // `prompt`) so the AI Task Log shows the full system prompt that shaped
+    // the response, not just the per-call entry text.
+    const loggedInput = `[System prompt]\n${systemPrompt}\n\n[Input]\n${input}`;
 
     const model = await AiModelFactory.GetPostProcessingLLM();
     const modelInfo = await AiService.#getPostProcessingModelInfo();
@@ -507,17 +520,42 @@ export class AiService {
     // quality when the provider supports it), then a raw-JSON mode, then
     // finally fall back to a plain-text generateText call with a hand-rolled
     // JSON-extraction parser.
-    const attempts: Array<{ label: string; run: () => Promise<{ object: unknown }> }> = [
-      { label: 'generateObject (auto)', run: () => generateObject({ model, schema, system: systemPrompt, prompt: input }) },
-      { label: 'generateObject (json mode)', run: () => generateObject({ model, schema, system: systemPrompt, prompt: input, mode: 'json' as any }) },
+    // CUSTOM-JOURNAL: rawText/reasoning threaded out of each tier (not just
+    // the parsed object) so a failure -- especially tier 3's "no JSON found"
+    // case -- can log the model's actual raw output instead of a truncated
+    // error-message fragment. This is exactly what would have made an
+    // earlier real failure (the model stuck reasoning in a loop over an
+    // inapplicable prompt rule, burning its whole budget and never writing
+    // JSON) diagnosable from the log alone. On throw, rawText/reasoning are
+    // attached to the Error itself so the catch block below can recover them.
+    const attempts: Array<{ label: string; run: () => Promise<{ object: unknown; rawText?: string; reasoning?: string | null }> }> = [
+      {
+        label: 'generateObject (auto)',
+        run: async () => {
+          const r = await generateObject({ model, schema, system: systemPrompt, prompt: input });
+          return { object: r.object, reasoning: (r as any)?.reasoning };
+        },
+      },
+      {
+        label: 'generateObject (json mode)',
+        run: async () => {
+          const r = await generateObject({ model, schema, system: systemPrompt, prompt: input, mode: 'json' as any });
+          return { object: r.object, reasoning: (r as any)?.reasoning };
+        },
+      },
       {
         label: 'generateText + manual JSON parse',
         run: async () => {
           const jsonPrompt = `${input}\n\nRespond with ONLY a single JSON object, no explanation, no code fences, no markdown. Keys are dimension ids (as strings) per the rules above -- include only the ids those rules say to include, each set to a whole number 1-100.`;
-          const { text } = await generateText({ model, system: systemPrompt, prompt: jsonPrompt });
+          const { text, reasoning } = await generateText({ model, system: systemPrompt, prompt: jsonPrompt });
           const match = text.match(/\{[\s\S]*\}/);
-          if (!match) throw new Error(`No JSON object found in model output: ${text.slice(0, 200)}`);
-          return { object: JSON.parse(match[0]) };
+          if (!match) {
+            const error: any = new Error(`No JSON object found in model output (see raw text/thinking below)`);
+            error.rawText = text;
+            error.reasoning = reasoning;
+            throw error;
+          }
+          return { object: JSON.parse(match[0]), rawText: text, reasoning };
         },
       },
     ];
@@ -531,9 +569,9 @@ export class AiService {
     // model left out and as the final fallback if every attempt fails.
     const defaultFor = (axis: (typeof axes)[number]) => (axis.negativeLabel ? 50 : 0);
 
-    const startedAt = new Date();
     let lastError: any = null;
     for (const attempt of attempts) {
+      const attemptStartedAt = new Date();
       try {
         const result = await attempt.run();
         const raw = result.object as Record<string, unknown>;
@@ -547,40 +585,51 @@ export class AiService {
           const value = typeof raw[key] === 'number' ? (raw[key] as number) : Number(raw[key]);
           scores[key] = Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : defaultFor(axis);
         }
+        const summary = `Resolved: ${JSON.stringify(scores)}\nRaw object: ${JSON.stringify(raw)}`;
+        const outputText = result.rawText ? `${summary}\n\nRaw model text:\n${result.rawText}` : summary;
         await logAiTaskCall(taskLogId, {
           agent: 'MoodAgent',
           provider: modelInfo.provider,
           modelTitle: modelInfo.title,
-          startedAt: startedAt.toISOString(),
+          startedAt: attemptStartedAt.toISOString(),
           finishedAt: new Date().toISOString(),
-          durationMs: Date.now() - startedAt.getTime(),
-          input,
-          output: `[${attempt.label}] raw=${JSON.stringify(raw)} resolved=${JSON.stringify(scores)}`,
+          durationMs: Date.now() - attemptStartedAt.getTime(),
+          input: loggedInput,
+          output: `[${attempt.label}] ${formatOutputWithThinking(outputText, result.reasoning)}`,
         });
         return scores;
       } catch (error: any) {
         lastError = error;
-        console.warn(`[MoodAgent] ${attempt.label} failed, ${attempt === attempts[attempts.length - 1] ? 'falling back to per-axis defaults' : 'trying next strategy'}:`, error?.message || error);
+        const isLastAttempt = attempt === attempts[attempts.length - 1];
+        console.warn(`[MoodAgent] ${attempt.label} failed, ${isLastAttempt ? 'falling back to per-axis defaults' : 'trying next strategy'}:`, error?.message || error);
+        // CUSTOM-JOURNAL: log every failed attempt individually (not just a
+        // final catch-all) -- each tier's own raw text/thinking, when
+        // available (e.g. tier 3's "no JSON found" case, which used to just
+        // truncate to a 200-char error-message fragment), is exactly what
+        // makes a failure like "the model got stuck reasoning in a loop and
+        // never produced JSON" diagnosable from the log alone.
+        const rawText: string | undefined = error?.rawText;
+        await logAiTaskCall(taskLogId, {
+          agent: 'MoodAgent',
+          provider: modelInfo.provider,
+          modelTitle: modelInfo.title,
+          startedAt: attemptStartedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: Date.now() - attemptStartedAt.getTime(),
+          input: loggedInput,
+          output: rawText ? `[${attempt.label}] ${formatOutputWithThinking(rawText, error?.reasoning)}` : '',
+          error: `[${attempt.label}] ${error?.message || String(error)}`,
+        });
       }
     }
 
     // Every strategy failed -- fall back to the same per-axis defaults used
     // for an omitted key (0 for unipolar, 50/neutral for bipolar) rather
     // than throwing, so the note still gets a moodScores object and a
-    // caller like tagAuditJob.ts never treats this as a fatal per-note error.
-    const fallbackScores: Record<string, number> = Object.fromEntries(axes.map((axis) => [String(axis.id), defaultFor(axis)]));
-    await logAiTaskCall(taskLogId, {
-      agent: 'MoodAgent',
-      provider: modelInfo.provider,
-      modelTitle: modelInfo.title,
-      startedAt: startedAt.toISOString(),
-      finishedAt: new Date().toISOString(),
-      durationMs: Date.now() - startedAt.getTime(),
-      input,
-      output: `[all strategies failed, per-axis defaults] ${JSON.stringify(fallbackScores)}`,
-      error: lastError?.message || String(lastError),
-    });
-    return fallbackScores;
+    // caller like tagAuditJob.ts never treats this as a fatal per-note
+    // error. The last attempt's own failure log above already carries the
+    // diagnostic detail (raw text/thinking), so no extra summary call here.
+    return Object.fromEntries(axes.map((axis) => [String(axis.id), defaultFor(axis)]));
   }
 
   // CUSTOM-JOURNAL: appends AI-suggested tags via optimistic-concurrency
@@ -599,14 +648,12 @@ export class AiService {
     expectedContent,
     expectedUpdatedAt,
     tags,
-    taskLogId = null,
   }: {
     noteId: number;
     accountId: number;
     expectedContent: string;
     expectedUpdatedAt: Date;
     tags: string[];
-    taskLogId?: number | null;
   }): Promise<boolean> {
     if (tags.length === 0) return true;
     const newContent = `${expectedContent}\n${tags.join(' ')}`;
@@ -619,26 +666,15 @@ export class AiService {
       return false;
     }
     await syncNoteTagsFromContent(noteId, accountId, newContent);
-    // CUSTOM-JOURNAL: verify the sync actually produced relation rows and
-    // surface that into the AI Task Log -- the previous bug here (a missing
-    // syncNoteTagsFromContent import, now fixed) had the content write
-    // succeed while the relational sync silently no-op'd via a caught
-    // ReferenceError, so "tags appear in content but never show as real
-    // tags" looked identical to success in every existing log. This entry
-    // makes that mismatch visible without needing DB access to spot it.
+    // CUSTOM-JOURNAL: verify the sync actually produced relation rows --
+    // server-console-only (was also a visible "TagSync" AI Task Log entry on
+    // every single tag apply, dropped per explicit request as noise now that
+    // the underlying sync bug this was added to catch is confirmed fixed).
+    // Kept as a console.warn safety net in case it ever regresses.
     const relationCount = await prisma.tagsToNote.count({ where: { noteId } });
     if (relationCount === 0) {
       console.warn(`[AI tagging] note ${noteId}: appended tags "${tags.join(' ')}" to content but tagsToNote has 0 rows for this note`);
     }
-    await logAiTaskCall(taskLogId, {
-      agent: 'TagSync',
-      input: tags.join(' '),
-      output: `Note ${noteId} now has ${relationCount} tag relation(s) in the DB`,
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      durationMs: 0,
-      ...(relationCount === 0 ? { error: 'syncNoteTagsFromContent produced 0 tagsToNote rows despite non-empty tags' } : {}),
-    });
     try {
       const config = await AiModelFactory.globalConfig();
       if (config.embeddingModelId) {
@@ -731,10 +767,11 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         });
         const customInput = `Current user name: ${ctx.name}\n${customPrompt}\n\nNote ID: ${noteId}\nNote content:\n${note.content}
             Current Note Type: ${noteType}`;
+        const customSystemPrompt = AiModelFactory.getAgentSystemPrompt(agent);
         await callAgentWithLog({
           taskLogId,
           agent: 'BaseChatAgent (custom)',
-          input: customInput,
+          input: customSystemPrompt ? `[System prompt]\n${customSystemPrompt}\n\n[Input]\n${customInput}` : customInput,
           run: () => agent.generate([{ role: 'user', content: customInput }], { runtimeContext }),
         });
 
@@ -756,13 +793,14 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       if (processingMode === 'comment' || processingMode === 'both') {
         const agent = await AiModelFactory.CommentAgent();
         const commentInput = `${prompt}\n\nNote content: ${note.content}`;
+        const commentSystemPrompt = AiModelFactory.getAgentSystemPrompt(agent);
         const modelInfo = await AiService.#getPostProcessingModelInfo(config);
         const result = await callAgentWithLog({
           taskLogId,
           agent: 'CommentAgent',
           provider: modelInfo.provider,
           modelTitle: modelInfo.title,
-          input: commentInput,
+          input: commentSystemPrompt ? `[System prompt]\n${commentSystemPrompt}\n\n[Input]\n${commentInput}` : commentInput,
           run: () => agent.generate([
             { role: 'user', content: prompt },
             { role: 'user', content: `Note content: ${note.content}` },
@@ -800,7 +838,6 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
             expectedContent: note.content,
             expectedUpdatedAt: note.updatedAt,
             tags: suggestedTags,
-            taskLogId,
           });
         } catch (error) {
           console.error('Error processing tags:', error);
@@ -830,10 +867,11 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
             extraInstructions: `You are an AI assistant that helps to improve notes. You'll be provided with a note content, and your task is to enhance it according to instructions. You have access to tools that can help you modify the note. Use these tools to make the requested improvements.`,
           });
           const smartEditInput = `\nCurrent user id: ${ctx.id}\nCurrent user name: ${ctx.name}\n${smartEditPrompt}\n\nNote ID: ${noteId}\nNote content:\n${note.content}`;
+          const smartEditSystemPrompt = AiModelFactory.getAgentSystemPrompt(agent);
           const result = await callAgentWithLog({
             taskLogId,
             agent: 'BaseChatAgent (smartEdit)',
-            input: smartEditInput,
+            input: smartEditSystemPrompt ? `[System prompt]\n${smartEditSystemPrompt}\n\n[Input]\n${smartEditInput}` : smartEditInput,
             run: () => agent.generate([{ role: 'user', content: smartEditInput }], { runtimeContext }),
           });
           const comment = await prisma.comments.create({

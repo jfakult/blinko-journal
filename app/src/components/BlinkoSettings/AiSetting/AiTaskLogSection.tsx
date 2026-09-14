@@ -101,15 +101,26 @@ const TaskLogDetailModal = ({ id, onClose }: { id: number | null; onClose: () =>
   const [detail, setDetail] = useState<TaskLogDetail | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // CUSTOM-JOURNAL: pulled out of the effect so a still-running task's calls
+  // can be re-fetched on demand (the refresh button below) without a full
+  // page reload -- this was fetch-once-on-open only, so a task that kept
+  // making calls after you opened its detail looked frozen until you closed
+  // and reopened it (or reloaded the page).
+  const fetchDetail = () => {
+    if (id == null) return;
+    setLoading(true);
+    api.ai.aiTaskLogGet.query({ id }).then((res) => setDetail(res as any)).catch((error) => {
+      console.error('Failed to fetch AI task log detail:', error);
+    }).finally(() => setLoading(false));
+  };
+
   useEffect(() => {
     if (id == null) {
       setDetail(null);
       return;
     }
-    setLoading(true);
-    api.ai.aiTaskLogGet.query({ id }).then((res) => setDetail(res as any)).catch((error) => {
-      console.error('Failed to fetch AI task log detail:', error);
-    }).finally(() => setLoading(false));
+    fetchDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   const totalDuration = detail?.finishedAt
@@ -121,7 +132,12 @@ const TaskLogDetailModal = ({ id, onClose }: { id: number | null; onClose: () =>
       <ModalContent>
         <ModalHeader className="flex items-center gap-2">
           <Icon icon="hugeicons:task-01" width="20" height="20" />
-          {detail ? t(`ai-task-type-${detail.taskType}`, detail.taskType) : t('loading')}
+          <span className="flex-1">{detail ? t(`ai-task-type-${detail.taskType}`, detail.taskType) : t('loading')}</span>
+          {detail?.status === 'running' && (
+            <Button size="sm" variant="light" isIconOnly isLoading={loading} onPress={fetchDetail} className="mr-8">
+              <Icon icon="tabler:refresh" width="18" height="18" />
+            </Button>
+          )}
         </ModalHeader>
         <ModalBody className="pb-6">
           {loading && (
@@ -217,26 +233,36 @@ export const AiTaskLogSection = observer(function AiTaskLogSection() {
   return (
     <CollapsibleCard icon="hugeicons:task-01" title={t('ai-task-log')}>
       <div className="space-y-3">
-        {user.isSuperAdmin && (
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant={scope === 'mine' ? 'solid' : 'flat'}
-              color={scope === 'mine' ? 'primary' : 'default'}
-              onPress={() => setScope('mine')}
-            >
-              {t('my-tasks')}
-            </Button>
-            <Button
-              size="sm"
-              variant={scope === 'all' ? 'solid' : 'flat'}
-              color={scope === 'all' ? 'primary' : 'default'}
-              onPress={() => setScope('all')}
-            >
-              {t('all-accounts')}
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center justify-between gap-2">
+          {user.isSuperAdmin ? (
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={scope === 'mine' ? 'solid' : 'flat'}
+                color={scope === 'mine' ? 'primary' : 'default'}
+                onPress={() => setScope('mine')}
+              >
+                {t('my-tasks')}
+              </Button>
+              <Button
+                size="sm"
+                variant={scope === 'all' ? 'solid' : 'flat'}
+                color={scope === 'all' ? 'primary' : 'default'}
+                onPress={() => setScope('all')}
+              >
+                {t('all-accounts')}
+              </Button>
+            </div>
+          ) : <div />}
+          {/* CUSTOM-JOURNAL: the list only ever fetched once on mount/scope
+              change -- a task that started or made progress after this
+              section was opened just looked stale until you closed and
+              reopened it (or reloaded the page). No live polling by
+              request, just a reliable way to pull fresh state on demand. */}
+          <Button size="sm" variant="light" isIconOnly isLoading={loading} onPress={() => fetchPage(1, true)}>
+            <Icon icon="tabler:refresh" width="18" height="18" />
+          </Button>
+        </div>
 
         {logs.length === 0 && !loading && (
           <div className="text-desc text-sm text-center py-4">{t('no-ai-tasks-found')}</div>

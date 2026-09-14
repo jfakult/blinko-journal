@@ -468,7 +468,11 @@ export class AiModelFactory {
         level: 'debug',
       }) : undefined
     });
-    return mastra.getAgent('BlinkoAgent');
+    const mastraAgent = mastra.getAgent('BlinkoAgent');
+    // CUSTOM-JOURNAL: see #createAgentFactory's matching comment -- lets
+    // callers log the actual instructions this chat agent was built with.
+    (mastraAgent as any).__systemPrompt = instructions;
+    return mastraAgent;
   }
 
   static #createAgentFactory(
@@ -503,14 +507,32 @@ export class AiModelFactory {
         ...(options?.tools || {}),
       });
 
-      return new Mastra({
+      const mastraAgent = new Mastra({
         agents: { agent },
         logger: process.env.NODE_ENV === 'development' ? new PinoLogger({
           name: 'Mastra',
           level: 'debug',
         }) : undefined,
       }).getAgent('agent');
+      // CUSTOM-JOURNAL: stash the exact system prompt text this agent was
+      // built with directly on the returned object, so call sites can log
+      // the *actual* prompt sent to the model (see callers' use of
+      // getAgentSystemPrompt below) instead of just the per-call user
+      // input -- the AI Task Log used to only show the note content, never
+      // the instructions that shaped how it was processed. Attached here
+      // rather than read back from Mastra's Agent API, which doesn't
+      // reliably expose a static instructions string (it can be a function
+      // in general), whereas this factory always knows the resolved text.
+      (mastraAgent as any).__systemPrompt = finalPrompt;
+      return mastraAgent;
     };
+  }
+
+  // CUSTOM-JOURNAL: reads back the system prompt stashed by
+  // #createAgentFactory above (or undefined for an agent not built through
+  // it, e.g. BaseChatAgent -- see its own __systemPrompt assignment).
+  static getAgentSystemPrompt(agent: unknown): string | undefined {
+    return (agent as any)?.__systemPrompt;
   }
 
   static TagAgent = AiModelFactory.#createAgentFactory(
@@ -534,7 +556,8 @@ export class AiModelFactory {
       3. **Language**: match the language of the content.
       4. **Response Format Specification**: Only return tags separated by commas. There should be no spaces between tags, and no formatting or code blocks should be used. Each tag should start with #, such as #JavaScript.
       5. **Example**: For JavaScript content related to web development, a reference response could be #JavaScript,#web-development,#frontend,#browser-compatibility. It is strictly prohibited to respond in formats such as code blocks, JSON, or Markdown. Just provide the tags directly.
-          `;
+
+      /no_think`;
     },
     'BlinkoTag',
     { useModelId: 'postProcessing' },
@@ -572,18 +595,37 @@ export class AiModelFactory {
   // of which id maps to which dimension -- previously that mapping relied on
   // list order matching schema key order, which the text-only fallback tier
   // in particular had no way to verify.
-  static moodSystemPrompt(axesDescription: string): string {
+  // CUSTOM-JOURNAL: hasBipolarAxis controls whether the bipolar-handling
+  // rule appears at all. It used to be unconditional, describing bipolar
+  // axes as a general possibility -- but after the valence-axis split (see
+  // prisma/seed.ts's 2026-09-16-split-valence-axis migration), a stock
+  // install has *zero* bipolar axes: every axis is unipolar, so that rule
+  // described a case that could never actually occur. A live trace showed
+  // exactly the failure mode you'd expect from that: the model getting
+  // stuck re-litigating "could axis 2-9 be bipolar? ... no wait ..." over a
+  // distinction that didn't apply to any axis in front of it, burning
+  // through its entire thinking budget before ever writing the JSON object
+  // (a bigger, more ambiguous task than tagging, which is why it failed
+  // here specifically). Dropping the inapplicable rule removes the ambiguity
+  // at the source, on top of the /no_think + think:false fixes that stop
+  // the reasoning pass from running at all.
+  static moodSystemPrompt(axesDescription: string, hasBipolarAxis: boolean): string {
+    const bipolarRule = hasBipolarAxis
+      ? `1. Bipolar dimensions (marked "bipolar -- always include") must always appear in your response: 0 = fully the negative label, 100 = fully the positive label, 50 = neutral or mixed. Every entry has some overall tone, so never omit these.\n2. Every other (unipolar) dimension should only appear in your response if that specific emotion is genuinely expressed or clearly implied in the entry. If it isn't really present, leave its id out of your response entirely -- do not include it with a score of 0. Most entries will only have a small handful of genuinely relevant unipolar dimensions, not all of them.`
+      : `1. Only include a dimension in your response if that specific emotion is genuinely expressed or clearly implied in the entry. If it isn't really present, leave its id out of your response entirely -- do not include it with a score of 0. Most entries will only have a small handful of genuinely relevant dimensions, not all of them.`;
+
     return `You are an emotional-tone analysis expert for a personal voice journal. Below is a numbered list of mood dimensions. Think through each one individually and decide whether it's actually relevant to this entry before scoring anything.
 
 Mood dimensions (id: description):
 ${axesDescription}
 
 Rules:
-1. Bipolar dimensions (marked "bipolar -- always include") must always appear in your response: 0 = fully the negative label, 100 = fully the positive label, 50 = neutral or mixed. Every entry has some overall tone, so never omit these.
-2. Every other (unipolar) dimension should only appear in your response if that specific emotion is genuinely expressed or clearly implied in the entry. If it isn't really present, leave its id out of your response entirely -- do not include it with a score of 0. Most entries will only have a small handful of genuinely relevant unipolar dimensions, not all of them.
+${bipolarRule}
 3. For whatever you do include, use the full range thoughtfully: a mild, passing feeling scores low (roughly 10-30), a clearly present but not overwhelming feeling scores in the middle (roughly 40-70), and only a genuinely intense, dominant feeling scores high (80-100). Don't default to extremes (0 or 100) out of habit -- most real feelings are somewhere in between.
 4. Base every score only on what's actually expressed or implied in the entry content, never on assumptions beyond the text.
-5. Respond with a JSON object keyed by each dimension's id (as a string, exactly as given above), mapping to its 1-100 score. Include only the ids described by rules 1-2.`;
+5. Respond with a JSON object keyed by each dimension's id (as a string, exactly as given above), mapping to its 1-100 score. ${hasBipolarAxis ? 'Include only the ids described by rules 1-2.' : 'Include only the ids described by rule 1.'}
+
+/no_think`;
   }
 
   static RelatedNotesAgent = AiModelFactory.#createAgentFactory(
