@@ -49,6 +49,23 @@ const FilterSortSummaryBar = observer(() => {
   );
 });
 
+// CUSTOM-JOURNAL: shown at the top of the recycle bin so the auto-purge
+// policy (PurgeTrashJob, server/jobs/purgeTrashJob.ts) isn't a surprise --
+// reads the same config.trashRetentionDays value the job itself uses
+// (falls back to 30 if unset, matching the job's own default), editable in
+// Settings -> Task Settings.
+const TrashInfoBanner = observer(() => {
+  const { t } = useTranslation();
+  const blinko = RootStore.Get(BlinkoStore);
+  const days = blinko.config.value?.trashRetentionDays ?? 30;
+  return (
+    <div className="px-2 md:px-6 flex items-center gap-2 mt-2 mb-1 text-tiny text-default-400">
+      <Icon icon="mdi:information-outline" width="16" height="16" className="shrink-0" />
+      <span>{t('trash-purge-policy-info', { days })}</span>
+    </div>
+  );
+});
+
 interface TodoGroup {
   displayDate: string;
   todos: any[];
@@ -184,6 +201,7 @@ const Home = observer(() => {
       </div>}
       {(!isPc || blinko.config.value?.hidePcEditor) && <BlinkoAddButton />}
       {store.showEditor && <FilterSortSummaryBar />}
+      {isTrashView && <TrashInfoBanner />}
 
       <LoadingAndEmpty
         isLoading={currentListState.isLoading}

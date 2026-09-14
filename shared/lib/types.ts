@@ -69,7 +69,10 @@ export const ZUserPerferConfigKey = z.union([
 
 export const ZConfigKey = z.union([
   z.literal('isAutoArchived'),
-  z.literal('autoArchivedDays'),
+  // CUSTOM-JOURNAL: replaces autoArchivedDays -- the Archive feature was
+  // dropped for a single recycle bin; this is now how many days a recycled
+  // note sits in the bin before PurgeTrashJob permanently deletes it.
+  z.literal('trashRetentionDays'),
   z.literal('mainModelId'),
   // CUSTOM-JOURNAL: model used for AI Post-Processing (tag suggestion, mood
   // scoring, the auto-comment/smartEdit/custom modes, and the tagAuditJob
@@ -146,7 +149,7 @@ export const ZOAuth2ProviderSchema = z.object({
 
 export const ZConfigSchema = z.object({
   isAutoArchived: z.boolean().optional(),
-  autoArchivedDays: z.number().nullable().optional(),
+  trashRetentionDays: z.number().nullable().optional(),
   mainModelId: z.number().nullable().optional(),
   postProcessingModelId: z.number().nullable().optional(),
   embeddingModelId: z.number().nullable().optional(),

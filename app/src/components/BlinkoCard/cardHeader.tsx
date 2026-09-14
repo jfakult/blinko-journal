@@ -17,6 +17,9 @@ import { HistoryButton } from '../BlinkoNoteHistory/HistoryButton';
 import { api } from '@/lib/trpc';
 import { PromiseCall } from '@/store/standard/PromiseState';
 import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
+import { showTipsDialog } from '@/components/Common/TipsDialog';
+import { DialogStandaloneStore } from '@/store/module/DialogStandalone';
+import i18n from '@/lib/i18n';
 
 interface CardHeaderProps {
   blinkoItem: Note;
@@ -165,8 +168,19 @@ export const CardHeader = observer(({ blinkoItem, blinko, isShareMode, isExpande
               className={`opacity-0 group-hover/card:opacity-100 group-hover/card:translate-x-0 ml-2 cursor-pointer hover:text-red-500 text-desc ${blinkoItem.isRecycle ? 'text-red-500 opacity-100' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
-                PromiseCall(api.notes.trashMany.mutate({ ids: [blinkoItem.id!] })).then(() => {
-                  blinko.updateTicker++;
+                // CUSTOM-JOURNAL: this icon is also shown (highlighted, as a
+                // status indicator) on an already-trashed note, where
+                // clicking it again is a harmless no-op -- only confirm when
+                // it would actually move the note into the recycle bin.
+                if (blinkoItem.isRecycle) return;
+                showTipsDialog({
+                  title: i18n.t('confirm-to-trash'),
+                  content: i18n.t('this-entry-will-be-moved-to-the-recycle-bin'),
+                  onConfirm: async () => {
+                    await PromiseCall(api.notes.trashMany.mutate({ ids: [blinkoItem.id!] }));
+                    blinko.updateTicker++;
+                    RootStore.Get(DialogStandaloneStore).close();
+                  }
                 });
               }}
             />

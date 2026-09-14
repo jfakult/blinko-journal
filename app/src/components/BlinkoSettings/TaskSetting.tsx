@@ -32,19 +32,19 @@ import { getBlinkoEndpoint } from '@/lib/blinkoEndpoint';
 import { PromiseState } from "@/store/standard/PromiseState";
 
 const UpdateDebounceCall = _.debounce((v) => {
-  return PromiseCall(api.config.update.mutate({ key: 'autoArchivedDays', value: Number(v) }))
+  return PromiseCall(api.config.update.mutate({ key: 'trashRetentionDays', value: Number(v) }))
 }, 500)
 
 export const TaskSetting = observer(() => {
   const blinko = RootStore.Get(BlinkoStore)
-  const [autoArchivedDays, setAutoArchivedDays] = useState("90")
+  const [trashRetentionDays, setTrashRetentionDays] = useState("30")
   const [polling, setPolling] = useState(false);
 
   useEffect(() => {
-    if (blinko.config.value?.autoArchivedDays) {
-      setAutoArchivedDays(String(blinko.config.value?.autoArchivedDays))
+    if (blinko.config.value?.trashRetentionDays) {
+      setTrashRetentionDays(String(blinko.config.value?.trashRetentionDays))
     }
-  }, [blinko.config.value?.autoArchivedDays])
+  }, [blinko.config.value?.trashRetentionDays])
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -82,13 +82,18 @@ export const TaskSetting = observer(() => {
           />} />
       */}
       <Item
-        leftContent={<>{t('schedule-archive-blinko')}</>}
+        leftContent={
+          <div className="flex flex-col gap-1">
+            <div>{t('schedule-purge-trash')}</div>
+            <div className="text-[12px] text-default-400">{t('schedule-purge-trash-description')}</div>
+          </div>
+        }
         rightContent={
           <div className="flex gap-4">
             <Input
-              value={autoArchivedDays}
+              value={trashRetentionDays}
               onChange={e => {
-                setAutoArchivedDays(e.target.value)
+                setTrashRetentionDays(e.target.value)
                 UpdateDebounceCall(e.target.value)
               }}
               className="w-[120px]"
@@ -98,11 +103,11 @@ export const TaskSetting = observer(() => {
               min={1}
             />
             <Switch
-              thumbIcon={blinko.updateArchiveTask.loading.value ? <Icon icon="eos-icons:three-dots-loading" width="24" height="24" /> : null}
-              isDisabled={blinko.updateArchiveTask.loading.value}
-              isSelected={blinko.ArchiveTask?.isRunning}
+              thumbIcon={blinko.updatePurgeTrashTask.loading.value ? <Icon icon="eos-icons:three-dots-loading" width="24" height="24" /> : null}
+              isDisabled={blinko.updatePurgeTrashTask.loading.value}
+              isSelected={blinko.PurgeTrashTask?.isRunning}
               onChange={async e => {
-                await blinko.updateArchiveTask.call(e.target.checked)
+                await blinko.updatePurgeTrashTask.call(e.target.checked)
               }}
             />
           </div>} />

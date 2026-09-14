@@ -25,6 +25,9 @@ import { EntryCoverImage } from "./EntryCoverImage";
 import { getBackgroundStyle, getFontStyle } from "@/lib/personalization";
 import { useTheme } from "next-themes";
 import { FontManager } from "@/lib/fontManager";
+import { showTipsDialog } from "@/components/Common/TipsDialog";
+import { DialogStandaloneStore } from "@/store/module/DialogStandalone";
+import i18n from "@/lib/i18n";
 
 
 export type BlinkoItem = Note & {
@@ -113,8 +116,14 @@ export const BlinkoCard = observer(({ blinkoItem, account, isShareMode = false, 
   };
 
   const handleSwipeDelete = () => {
-    api.notes.trashMany.mutate({ ids: [blinkoItem.id!] }).then(() => {
-      blinko.updateTicker++;
+    showTipsDialog({
+      title: i18n.t('confirm-to-trash'),
+      content: i18n.t('this-entry-will-be-moved-to-the-recycle-bin'),
+      onConfirm: async () => {
+        await api.notes.trashMany.mutate({ ids: [blinkoItem.id!] });
+        blinko.updateTicker++;
+        RootStore.Get(DialogStandaloneStore).close();
+      }
     });
   };
 

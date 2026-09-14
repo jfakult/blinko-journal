@@ -28,6 +28,8 @@ import { helper } from "@/lib/helper";
 import { TagPicker } from "@/components/Common/TagPicker";
 import { SentimentView } from "@/components/Common/SentimentView";
 import { moodAxis } from "@shared/lib/prismaZodType";
+import { showTipsDialog } from "@/components/Common/TipsDialog";
+import { DialogStandaloneStore } from "@/store/module/DialogStandalone";
 
 
 export const ShowEditTimeModel = (showExpired: boolean = false) => {
@@ -267,29 +269,20 @@ const handlePublic = () => {
   // })
 }
 
-const handleArchived = () => {
+// CUSTOM-JOURNAL: used to be a 3-way archive/unarchive/restore toggle
+// (handleArchived). The Archive feature was dropped for a single recycle
+// bin -- this is now restore-from-trash only, and RestoreItem below only
+// renders this menu entry when the note is actually in the trash. Doesn't
+// touch isArchived: that field is unrelated here, still used as the
+// TODO-type "complete" flag (see cardHeader.tsx's handleTodoToggle) -- a
+// completed todo that gets trashed and restored should stay completed.
+const handleRestore = () => {
   const blinko = RootStore.Get(BlinkoStore)
-  if (blinko.curSelectedNote?.isRecycle) {
-    return blinko.upsertNote.call({
-      id: blinko.curSelectedNote?.id,
-      isRecycle: false,
-      isArchived: false
-    })
-  }
-
-  if (blinko.curSelectedNote?.isArchived) {
-    return blinko.upsertNote.call({
-      id: blinko.curSelectedNote?.id,
-      isArchived: false,
-    })
-  }
-
-  if (!blinko.curSelectedNote?.isArchived) {
-    return blinko.upsertNote.call({
-      id: blinko.curSelectedNote?.id,
-      isArchived: true
-    })
-  }
+  if (!blinko.curSelectedNote?.isRecycle) return
+  return blinko.upsertNote.call({
+    id: blinko.curSelectedNote?.id,
+    isRecycle: false,
+  })
 }
 
 const handleAITag = () => {
@@ -360,13 +353,27 @@ const handleViewSentiments = () => {
 
 const handleTrash = () => {
   const blinko = RootStore.Get(BlinkoStore)
-  PromiseCall(api.notes.trashMany.mutate({ ids: [blinko.curSelectedNote?.id!] }))
+  showTipsDialog({
+    title: i18n.t('confirm-to-trash'),
+    content: i18n.t('this-entry-will-be-moved-to-the-recycle-bin'),
+    onConfirm: async () => {
+      await PromiseCall(api.notes.trashMany.mutate({ ids: [blinko.curSelectedNote?.id!] }))
+      RootStore.Get(DialogStandaloneStore).close()
+    }
+  })
 }
 
 const handleDelete = async () => {
   const blinko = RootStore.Get(BlinkoStore)
-  PromiseCall(api.notes.deleteMany.mutate({ ids: [blinko.curSelectedNote?.id!] }))
-  PromiseCall(api.ai.embeddingDelete.mutate({ id: blinko.curSelectedNote?.id! }))
+  showTipsDialog({
+    title: i18n.t('confirm-to-delete'),
+    content: i18n.t('this-operation-removes-the-associated-label-and-cannot-be-restored-please-confirm'),
+    onConfirm: async () => {
+      await PromiseCall(api.notes.deleteMany.mutate({ ids: [blinko.curSelectedNote?.id!] }))
+      PromiseCall(api.ai.embeddingDelete.mutate({ id: blinko.curSelectedNote?.id! }))
+      RootStore.Get(DialogStandaloneStore).close()
+    }
+  })
 }
 
 const handleRelatedNotes = async () => {
@@ -456,12 +463,11 @@ export const PublicItem = observer(() => {
   </div>
 })
 
-export const ArchivedItem = observer(() => {
+export const RestoreItem = observer(() => {
   const { t } = useTranslation();
-  const blinko = RootStore.Get(BlinkoStore)
   return <div className="flex items-start gap-2">
-    <Icon icon="eva:archive-outline" width="20" height="20" />
-    {blinko.curSelectedNote?.isArchived || blinko.curSelectedNote?.isRecycle ? t('recovery') : t('archive')}
+    <Icon icon="mdi:restore" width="20" height="20" />
+    {t('recovery')}
   </div>
 })
 
@@ -573,9 +579,11 @@ export const BlinkoRightClickMenu = observer(() => {
       <TopItem />
     </ContextMenuItem>
 
-    <ContextMenuItem onClick={handleArchived}>
-      <ArchivedItem />
-    </ContextMenuItem>
+    {blinko.curSelectedNote?.isRecycle ? (
+      <ContextMenuItem onClick={handleRestore}>
+        <RestoreItem />
+      </ContextMenuItem>
+    ) : <></>}
 
     {!blinko.curSelectedNote?.isRecycle ? (
       <ContextMenuItem onClick={handlePublic}>
@@ -667,9 +675,11 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
       ) : null}
       <DropdownItem key="EditTimeItem" onPress={() => ShowEditTimeModel()}> <EditTimeItem /></DropdownItem>
       <DropdownItem key="TopItem" onPress={handleTop}> <TopItem />  </DropdownItem>
-      <DropdownItem key="ArchivedItem" onPress={handleArchived}>
-        <ArchivedItem />
-      </DropdownItem>
+      {blinko.curSelectedNote?.isRecycle ? (
+        <DropdownItem key="RestoreItem" onPress={handleRestore}>
+          <RestoreItem />
+        </DropdownItem>
+      ) : <></>}
 
       {!blinko.curSelectedNote?.isRecycle ? (
         <DropdownItem key="ShareItem" onPress={handlePublic}> 

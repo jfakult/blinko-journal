@@ -158,22 +158,14 @@ const App = observer(() => {
             </Tooltip>
 
 
-            <Tooltip content={t('archive')} >
-              <Button onPress={async e => {
-                if (!store.currentNote) return
-                await blinko.upsertNote.call({ id: store.currentNote.id, isArchived: true })
-                await blinko.dailyReviewNoteList.call()
-              }} isIconOnly color='default' startContent={<Icon icon="eva:archive-outline" width="20" height="20" />}></Button>
-            </Tooltip>
-
             <Button
               onPress={async e => {
                 if (!store.currentNote) return
                 showTipsDialog({
-                  title: t('confirm-to-delete'),
-                  content: t('this-operation-removes-the-associated-label-and-cannot-be-restored-please-confirm'),
+                  title: t('confirm-to-trash'),
+                  content: t('this-entry-will-be-moved-to-the-recycle-bin'),
                   onConfirm: async () => {
-                    await api.notes.deleteMany.mutate({ ids: [store.currentNote!.id!] })
+                    await api.notes.trashMany.mutate({ ids: [store.currentNote!.id!] })
                     await blinko.dailyReviewNoteList.call()
                     RootStore.Get(DialogStandaloneStore).close()
                   }

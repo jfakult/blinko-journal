@@ -10,7 +10,7 @@ import { StorageListState } from './standard/StorageListState';
 import i18n from '@/lib/i18n';
 import { api } from '@/lib/trpc';
 import { Attachment, NoteType, type Note } from '@shared/lib/types';
-import { ARCHIVE_BLINKO_TASK_NAME, DBBAK_TASK_NAME } from '@shared/lib/sharedConstant';
+import { PURGE_TRASH_TASK_NAME, DBBAK_TASK_NAME } from '@shared/lib/sharedConstant';
 import { makeAutoObservable } from 'mobx';
 import { UserStore } from './user';
 import { BaseStore } from './baseStore';
@@ -496,12 +496,12 @@ export class BlinkoStore implements Store {
       await this.task.call()
     }
   })
-  updateArchiveTask = new PromiseState({
+  updatePurgeTrashTask = new PromiseState({
     function: async (isStart) => {
       if (isStart) {
-        await api.task.upsertTask.mutate({ type: 'start', task: ARCHIVE_BLINKO_TASK_NAME })
+        await api.task.upsertTask.mutate({ type: 'start', task: PURGE_TRASH_TASK_NAME })
       } else {
-        await api.task.upsertTask.mutate({ type: 'stop', task: ARCHIVE_BLINKO_TASK_NAME })
+        await api.task.upsertTask.mutate({ type: 'stop', task: PURGE_TRASH_TASK_NAME })
       }
       await this.task.call()
     }
@@ -512,8 +512,8 @@ export class BlinkoStore implements Store {
     return this.task.value?.find(i => i.name == DBBAK_TASK_NAME)
   }
 
-  get ArchiveTask() {
-    return this.task.value?.find(i => i.name == ARCHIVE_BLINKO_TASK_NAME)
+  get PurgeTrashTask() {
+    return this.task.value?.find(i => i.name == PURGE_TRASH_TASK_NAME)
   }
 
 

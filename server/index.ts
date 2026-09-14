@@ -8,7 +8,7 @@ import { configureSession } from './routerExpress/auth/config';
 
 // pg-boss job scheduling
 import { getPgBoss, stopPgBoss } from './lib/pgBoss';
-import { ArchiveJob } from './jobs/archivejob';
+import { PurgeTrashJob } from './jobs/purgeTrashJob';
 import { DBJob } from './jobs/dbjob';
 import { RebuildEmbeddingJob } from './jobs/rebuildEmbeddingJob';
 import { RecommandJob } from './jobs/recommandJob';
@@ -76,7 +76,19 @@ async function initializeJobs() {
     
     // Initialize all jobs
     // These will restore their schedules from the database if they were running
-    await ArchiveJob.initialize();
+    // CUSTOM-JOURNAL: unlike the other jobs here (opt-in via the Task
+    // Settings toggle -- initialize() only registers the pg-boss worker, it
+    // doesn't schedule anything), PurgeTrashJob auto-starts on its default
+    // daily cron so retention actually happens without the user needing to
+    // discover and flip a switch first. immediate:false so a fresh
+    // deploy/restart doesn't fire an unexpected purge before the schedule's
+    // first real run -- still fully visible/pausable from Task Settings
+    // afterward, same as every other job here.
+    if (!(await PurgeTrashJob.isScheduled())) {
+      await PurgeTrashJob.Start(undefined, false);
+    } else {
+      await PurgeTrashJob.initialize();
+    }
     await DBJob.initialize();
     await RebuildEmbeddingJob.initialize();
     await RecommandJob.initialize();

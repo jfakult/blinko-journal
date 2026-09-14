@@ -1,9 +1,9 @@
 import { router, authProcedure, demoAuthMiddleware, superAdminAuthMiddleware } from '@server/middleware';
 import { z } from 'zod';
 import { DBJob } from '@server/jobs/dbjob';
-import { ArchiveJob } from '@server/jobs/archivejob';
+import { PurgeTrashJob } from '@server/jobs/purgeTrashJob';
 import { UPLOAD_FILE_PATH } from '@shared/lib/pathConstant';
-import { ARCHIVE_BLINKO_TASK_NAME, DBBAK_TASK_NAME } from '@shared/lib/sharedConstant';
+import { PURGE_TRASH_TASK_NAME, DBBAK_TASK_NAME } from '@shared/lib/sharedConstant';
 import { Memos } from '../jobs/memosJob';
 import { unlink } from 'fs/promises';
 import { FileService } from '../lib/files';
@@ -83,7 +83,7 @@ export const taskRouter = router({
     .input(z.object({
       time: z.string().optional(),
       type: z.enum(['start', 'stop', 'update']),
-      task: z.enum([ARCHIVE_BLINKO_TASK_NAME, DBBAK_TASK_NAME]),
+      task: z.enum([PURGE_TRASH_TASK_NAME, DBBAK_TASK_NAME]),
     }))
     .output(z.any())
     .mutation(async ({ input }) => {
@@ -93,7 +93,7 @@ export const taskRouter = router({
         if (task == DBBAK_TASK_NAME) {
           await DBJob.Start(cronTime, true);
         } else {
-          await ArchiveJob.Start(cronTime, true);
+          await PurgeTrashJob.Start(cronTime, true);
         }
         return { success: true, action: 'started', cron: cronTime };
       }
@@ -101,7 +101,7 @@ export const taskRouter = router({
         if (task == DBBAK_TASK_NAME) {
           await DBJob.Stop();
         } else {
-          await ArchiveJob.Stop();
+          await PurgeTrashJob.Stop();
         }
         return { success: true, action: 'stopped' };
       }
@@ -109,7 +109,7 @@ export const taskRouter = router({
         if (task == DBBAK_TASK_NAME) {
           await DBJob.SetCronTime(time);
         } else {
-          await ArchiveJob.SetCronTime(time);
+          await PurgeTrashJob.SetCronTime(time);
         }
         return { success: true, action: 'updated', cron: time };
       }

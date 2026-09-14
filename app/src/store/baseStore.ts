@@ -45,17 +45,21 @@ export class BaseStore implements Store {
       icon: 'solar:database-linear',
       hiddenMobile: true,
     },
-    {
-      title: 'archived',
-      href: '/?path=archived',
-      icon: 'solar:box-broken',
-      hiddenMobile: true,
-    },
+    // CUSTOM-JOURNAL: the "archived" nav entry (and the whole Archive
+    // feature -- see server/jobs/purgeTrashJob.ts, which replaced
+    // archivejob.ts) is removed per explicit request: a second, separate
+    // "hide this note" concept alongside the recycle bin was confusing and
+    // redundant for a single-user journal. isArchived itself is NOT removed
+    // from the schema -- it's still used, unrelated to this feature, as the
+    // TODO-type "complete" flag (see cardHeader.tsx's handleTodoToggle) --
+    // only its Archive-tab-specific meaning goes away. The recycle bin
+    // (formerly hidden from the sidebar entirely, hiddenSidebar: true) takes
+    // this visible slot instead, since every delete now lands there -- see
+    // PurgeTrashJob for the retention/auto-purge policy.
     {
       title: 'trash',
       href: '/?path=trash',
       hiddenMobile: true,
-      hiddenSidebar: true,
       icon: 'hugeicons:delete-02',
     },
     {
