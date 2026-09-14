@@ -39,11 +39,6 @@ export class TagAuditJob extends BaseScheduleJob {
   protected static taskName = TAG_AUDIT_TASK_NAME;
   protected static cronSchedule = '0 3 * * *';
   private static forceStopFlag = false;
-  // CUSTOM-JOURNAL: id of the aiTaskLog row for the run currently in
-  // RunTask -- this job is effectively single-flight (same pattern as
-  // forceStopFlag above), so a static field is enough to thread it through
-  // RunTask's several return points without changing every signature.
-  private static currentLogId: number | null = null;
 
   private static async getProgressFromCache(): Promise<TagAuditProgress | null> {
     const cached = await prisma.cache.findUnique({ where: { key: PROGRESS_CACHE_KEY } });
@@ -159,11 +154,37 @@ export class TagAuditJob extends BaseScheduleJob {
       await this.saveProgressToCache(currentProgress);
     }
 
-    if (!currentProgress.isRunning) {
-      return currentProgress;
-    }
+    // CUSTOM-JOURNAL: this used to `return` here silently -- with zero log
+    // entry -- whenever isRunning was false, which is exactly the state
+    // every completed or never-started run leaves behind. That's harmless
+    // for the UI's explicit ForceRebuild/ResumeRebuild calls (which always
+    // set isRunning:true in the cache themselves before triggering), but it
+    // meant the *nightly cron* firing on its own schedule -- with no prior
+    // manual run to have left isRunning:true -- always hit this branch and
+    // did nothing, invisibly, every single night. Scheduled runs are the
+    // whole point of a cron job, so this now always proceeds (and logs
+    // something) instead of silently no-op'ing; a genuinely empty run (no
+    // notes need attention) still gets a clear log entry below rather than
+    // no entry at all. The mid-run Stop button still works via the
+    // isRunning check inside the batch loop further down, which is a
+    // separate, still-correct mechanism for interrupting an active run.
+    currentProgress.isRunning = true;
+    await this.saveProgressToCache(currentProgress);
 
-    this.currentLogId = await logAiTaskStart({
+    // CUSTOM-JOURNAL: local, not a shared static field (this used to be
+    // `this.currentLogId`) -- ForceRebuild's own "stop the existing run,
+    // wait 1s, then start a new one" logic already proves this job isn't
+    // reliably single-flight; a 1-second wait doesn't guarantee an old
+    // invocation has actually finished its current in-flight await (an
+    // Ollama call can run for minutes). With a shared static field, a
+    // second invocation's logAiTaskStart would silently overwrite the
+    // first's id, so the first invocation's eventual logAiTaskFinish call
+    // -- whether success, error, or stopped -- would write to the *second*
+    // run's log row instead of its own, leaving its own row stuck at
+    // 'running' forever and invisible to anyone looking for a completed
+    // entry. Scoping this to the invocation instead makes every run's
+    // finish status land on its own row regardless of overlap.
+    const taskLogId = await logAiTaskStart({
       accountId: null,
       taskType: 'tagAudit',
       message: `Tag audit run starting (${currentProgress.current || 0}/${currentProgress.total || '?'} already done)`,
@@ -205,23 +226,24 @@ export class TagAuditJob extends BaseScheduleJob {
 
       const total = (currentProgress.total || 0) > 0 ? currentProgress.total : notes.length + processedIds.size;
       let current = currentProgress.current || processedIds.size;
+      const startingCurrent = current;
 
       console.log(`[${new Date().toISOString()}] start tag audit, ${untaggedNotes.length} untagged notes, ${repairCandidates.length} broken notes to repair`);
 
       for (let i = 0; i < notes.length; i += BATCH_SIZE) {
         if (this.forceStopFlag) {
-          return await this.saveStoppedProgress(current, total, results, processedIds, failedIds);
+          return await this.saveStoppedProgress(taskLogId, current, total, results, processedIds, failedIds);
         }
         const latestProgress = await this.getProgressFromCache();
         if (latestProgress && !latestProgress.isRunning) {
-          await logAiTaskFinish(this.currentLogId, 'stopped', `Stopped externally at ${current}/${total}`);
+          await logAiTaskFinish(taskLogId, 'stopped', `Stopped externally at ${current}/${total}`);
           return latestProgress;
         }
 
         const noteBatch = notes.slice(i, i + BATCH_SIZE);
         for (const note of noteBatch) {
           if (this.forceStopFlag) {
-            return await this.saveStoppedProgress(current, total, results, processedIds, failedIds);
+            return await this.saveStoppedProgress(taskLogId, current, total, results, processedIds, failedIds);
           }
           if (processedIds.has(note.id)) continue;
 
@@ -251,7 +273,7 @@ export class TagAuditJob extends BaseScheduleJob {
                 noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
               }
 
-              const suggestedTags = await AiService.suggestTags(noteContent, this.currentLogId);
+              const suggestedTags = await AiService.suggestTags(noteContent, taskLogId);
               if (suggestedTags.length > 0) {
                 // CUSTOM-JOURNAL: CAS write -- skips (self-heals next audit
                 // run) rather than clobbering if the note changed underneath
@@ -262,14 +284,14 @@ export class TagAuditJob extends BaseScheduleJob {
                   expectedContent: noteContent,
                   expectedUpdatedAt: noteUpdatedAt,
                   tags: suggestedTags,
-                  taskLogId: this.currentLogId,
+                  taskLogId,
                 });
               } else {
                 // Defensive: pick up any manually-typed hashtags not yet synced.
                 await syncNoteTagsFromContent(note.id, note.accountId!, noteContent);
               }
 
-              const moodScores = await AiService.scoreMood(noteContent, this.currentLogId);
+              const moodScores = await AiService.scoreMood(noteContent, taskLogId);
 
               // CUSTOM-JOURNAL: preserve updatedAt -- this is a background
               // backfill bookkeeping write, not a user edit.
@@ -316,18 +338,27 @@ export class TagAuditJob extends BaseScheduleJob {
       };
       await this.saveProgressToCache(finalProgress);
 
-      await CreateNotification({
-        title: 'tag-audit-complete',
-        content: 'tag-audit-complete',
-        type: NotificationType.SYSTEM,
-        useAdmin: true,
-      });
+      // CUSTOM-JOURNAL: only notify if this run actually did something --
+      // now that a cron-triggered run always executes (see the isRunning
+      // fix above), a night with nothing pending would otherwise send an
+      // empty "tag audit complete" notification every single night.
+      if (current > startingCurrent) {
+        await CreateNotification({
+          title: 'tag-audit-complete',
+          content: 'tag-audit-complete',
+          type: NotificationType.SYSTEM,
+          useAdmin: true,
+        });
+      }
 
-      await logAiTaskFinish(this.currentLogId, 'success', `Tagged ${current}/${total} notes (${failedIds.size} failed)`);
+      const finishMessage = notes.length === 0
+        ? 'Nothing needed processing (no untagged or broken notes found)'
+        : `Tagged ${current}/${total} notes (${failedIds.size} failed)`;
+      await logAiTaskFinish(taskLogId, 'success', finishMessage);
       return finalProgress;
     } catch (error) {
       console.error("Error running tag audit:", error);
-      await logAiTaskFinish(this.currentLogId, 'error', error?.toString());
+      await logAiTaskFinish(taskLogId, 'error', error?.toString());
       const errorProgress: TagAuditProgress = {
         ...currentProgress,
         isRunning: false,
@@ -343,6 +374,7 @@ export class TagAuditJob extends BaseScheduleJob {
   }
 
   private static async saveStoppedProgress(
+    taskLogId: number | null,
     current: number,
     total: number,
     results: TagAuditResultRecord[],
@@ -359,7 +391,7 @@ export class TagAuditJob extends BaseScheduleJob {
       failedNoteIds: Array.from(failedIds),
       startTime: new Date().toISOString(),
     };
-    await logAiTaskFinish(this.currentLogId, 'stopped', `Stopped at ${current}/${total}`);
+    await logAiTaskFinish(taskLogId, 'stopped', `Stopped at ${current}/${total}`);
     await this.saveProgressToCache(stoppedProgress);
     return stoppedProgress;
   }
