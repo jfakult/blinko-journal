@@ -239,7 +239,10 @@ export const DefaultModelsSection = observer(() => {
             </Select>
           </div>
 
-          {/* Voice Model */}
+          {/* Voice Model -- CUSTOM-JOURNAL: only shown when the "AI Audio
+              Transcription" toggle is on (AiFeaturesToggleSection); voice
+              config is meaningless when transcription itself is disabled. */}
+          {blinko.config.value?.isUseAiTranscription !== false && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Icon icon="hugeicons:mic-01" width="16" height="16" />
@@ -297,6 +300,7 @@ export const DefaultModelsSection = observer(() => {
               ))}
             </Select>
           </div>
+          )}
 
           {/* Vision Model */}
           <div className="space-y-2">

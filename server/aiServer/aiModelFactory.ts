@@ -228,6 +228,19 @@ export class AiModelFactory {
     return await getGlobalConfig({ useAdmin: true });
   }
 
+  // CUSTOM-JOURNAL: single choke point for the master AI killswitch
+  // (isEnableAiFeatures, one of the 4 cascading "AI Features" toggles) --
+  // every AI action entry point (post-processing, transcription, reanalyze,
+  // tag audit, chat) calls this first instead of duplicating
+  // `if (!config.isEnableAiFeatures) ...` inline everywhere, so the
+  // killswitch can't be accidentally missed at a new call site later.
+  // !== false so an unset/undefined value (before the seed default lands,
+  // or a config object that hasn't been re-fetched) defaults to enabled.
+  static async assertAiEnabled(config?: { isEnableAiFeatures?: boolean }): Promise<boolean> {
+    const cfg = config ?? await AiModelFactory.globalConfig();
+    return cfg.isEnableAiFeatures !== false;
+  }
+
   static async getAiProvider(id: number) {
     return await prisma.aiProviders.findUnique({
       where: { id },

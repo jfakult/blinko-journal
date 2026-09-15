@@ -342,6 +342,13 @@ async function seedDefaultAiConfig() {
   await setConfigIfMissing('aiPostProcessingMode', 'tags');
   await forceSetConfigOnce('2026-09-19-answer-briefly-lead-tags-prompt', 'aiTagsPrompt', journalTagsPrompt);
 
+  // CUSTOM-JOURNAL: the 4 cascading "AI Features" toggles (AI Settings) --
+  // all default true so an existing install's behavior is unchanged until
+  // someone explicitly opts out of a piece of it.
+  await setConfigIfMissing('isEnableAiFeatures', true);
+  await setConfigIfMissing('isUseAiTranscription', true);
+  await setConfigIfMissing('isShowAiChatTab', true);
+
   // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
   // entry's date should read as "when I wrote this," not "when it was last
   // touched" (which now includes AI tag/mood passes, even though those are

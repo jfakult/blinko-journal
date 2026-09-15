@@ -177,8 +177,17 @@ export const CardHeader = observer(({ blinkoItem, blinko, isShareMode, isExpande
                   title: i18n.t('confirm-to-trash'),
                   content: i18n.t('this-entry-will-be-moved-to-the-recycle-bin'),
                   onConfirm: async () => {
+                    // CUSTOM-JOURNAL: PromiseCall itself already bumps
+                    // blinko.updateTicker on success (see PromiseState.ts's
+                    // PromiseCall helper) -- a second increment here fired
+                    // blinkoStore.use()'s refreshData() twice in rapid
+                    // succession, racing two resetAndCall()s on the same
+                    // PromisePageState and permanently desyncing the "loading
+                    // more" spinner's length-comparison (isSyncingList in
+                    // pages/index.tsx), leaving it stuck forever. Compare
+                    // BlinkoRightClickMenu/index.tsx's handleTrash, which
+                    // never double-incremented.
                     await PromiseCall(api.notes.trashMany.mutate({ ids: [blinkoItem.id!] }));
-                    blinko.updateTicker++;
                     RootStore.Get(DialogStandaloneStore).close();
                   }
                 });

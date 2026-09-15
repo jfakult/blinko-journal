@@ -759,6 +759,12 @@ export class AiService {
       // Get the configuration
       const config = await AiModelFactory.globalConfig();
 
+      // CUSTOM-JOURNAL: master AI killswitch, checked before the
+      // post-processing-specific toggle below.
+      if (!(await AiModelFactory.assertAiEnabled(config))) {
+        return { success: false, message: 'AI features are disabled' };
+      }
+
       // Check if post-processing is enabled
       if (!config.isUseAiPostProcessing) {
         return { success: false, message: 'AI post-processing not enabled' };
@@ -987,6 +993,18 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
   // one note wants the real tags+mood pipeline regardless of whatever the
   // global post-processing mode happens to be set to.
   static async reanalyzeNote({ noteId, ctx }: { noteId: number; ctx: Context }) {
+    // CUSTOM-JOURNAL: master AI killswitch only -- deliberately NOT gated on
+    // isUseAiPostProcessing, for the same reason this function already
+    // ignores aiPostProcessingMode (see the comment below): a user
+    // explicitly clicking "Re-run AI analysis" on one note wants the real
+    // pipeline regardless of the global automatic-mode/toggle state. The
+    // menu item itself is still hidden when post-processing is off (see
+    // BlinkoRightClickMenu) -- that's a UI-discoverability choice, not a
+    // reason to block an already-triggered explicit request here too.
+    if (!(await AiModelFactory.assertAiEnabled())) {
+      throw new Error('AI features are disabled');
+    }
+
     const note = await prisma.notes.findUnique({
       where: { id: noteId, accountId: Number(ctx.id) },
       select: { content: true, accountId: true, updatedAt: true },
@@ -1027,17 +1045,22 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       }
 
       const moodScores = await AiService.scoreMood(noteContent, taskLogId);
-      // CUSTOM-JOURNAL: preserve updatedAt -- same reasoning as
-      // postProcessNote/tagAuditJob: this is an AI bookkeeping write, not a
-      // user edit, and shouldn't bump "recently updated" sort. Safe to reuse
-      // noteUpdatedAt here even after a successful appendTagsIfUnchanged CAS
-      // write above -- that write itself preserves updatedAt rather than
-      // bumping it, so the DB's current value still matches.
+      // CUSTOM-JOURNAL: unlike postProcessNote's automatic tagging, this is
+      // an EXPLICIT user-triggered action from the right-click menu ("Re-run
+      // AI analysis") -- per product decision, manual AI actions should bump
+      // updatedAt like any other user edit; only automatic/background AI
+      // writes (postProcessNote, tagAuditJob's backfill) continue to
+      // preserve it. Let Prisma's @updatedAt auto-touch this normally -- no
+      // updatedAt override. (The intermediate CAS writes above --
+      // transcribeAndAppend's forced call and appendTagsIfUnchanged -- still
+      // preserve updatedAt internally to stay consistent with the
+      // noteUpdatedAt value they were CAS-chained against; this final write
+      // is what actually bumps it for real, so there's no user-visible
+      // inconsistency.)
       await prisma.notes.update({
         where: { id: noteId },
         data: {
           aiTaggedAt: new Date(),
-          updatedAt: noteUpdatedAt,
           ...(Object.keys(moodScores).length > 0 && { moodScores }),
         },
       });
@@ -1275,6 +1298,20 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
   //   they're not something a person is watching for a result.
   static async transcribeAndAppend({ noteId, accountId, force = false }: { noteId: number; accountId: number; force?: boolean }): Promise<{ transcribedAny: boolean; message?: string }> {
     const config = await AiModelFactory.globalConfig();
+    // CUSTOM-JOURNAL: gates every caller (note create/update, reanalyzeNote,
+    // the manual "Transcribe" menu button) from this single entry point --
+    // the master AI killswitch and the "AI Audio Transcription" toggle
+    // (isUseAiTranscription, one of the 4 cascading AI Features toggles).
+    if (!(await AiModelFactory.assertAiEnabled(config)) || config.isUseAiTranscription === false) {
+      const message = !(await AiModelFactory.assertAiEnabled(config))
+        ? 'AI features are disabled'
+        : 'Audio transcription is disabled (AI Settings -> AI Audio Transcription)';
+      if (force) {
+        const taskLogId = await logAiTaskStart({ accountId, taskType: 'transcription', noteId, message: 'Manual transcribe requested' });
+        await logAiTaskFinish(taskLogId, 'error', message);
+      }
+      return { transcribedAny: false, message };
+    }
     if (!config.voiceModelId) {
       const message = 'No voice/transcription model configured (AI Settings -> Voice)';
       if (force) {
@@ -1336,8 +1373,32 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       return { transcribedAny: false, message };
     }
 
-    const heading = transcriptions.length > 1 ? (i: number) => `Audio Transcription ${i + 1}` : () => 'Audio Transcription';
-    const appended = transcriptions.map((t, i) => `\n\n## ${heading(i)}\n${t.transcription}`).join('');
+    // CUSTOM-JOURNAL: each attachment's transcript is wrapped in a matched
+    // HTML-comment marker pair keyed by attachment id
+    // (<!-- transcription:attachmentId=N --> ... <!-- /transcription:attachmentId=N -->)
+    // around an indented blockquote, instead of a bare, positionally-numbered
+    // "## Audio Transcription" heading. Two reasons: (1) retranscribing
+    // (force:true) must REPLACE the prior transcript for that attachment, not
+    // stack a duplicate underneath it -- the marker makes each attachment's
+    // block findable and replaceable in place without touching other
+    // attachments' blocks or user-authored content that happens to contain
+    // the words "Audio Transcription"; (2) a blockquote visually separates
+    // AI-generated transcript text from the user's own note body. HTML
+    // comments render as nothing in the markdown preview.
+    const transcriptionBlock = (attachmentId: number, text: string): string => {
+      const quoted = text.split('\n').map((line) => `> ${line}`).join('\n');
+      return `\n\n<!-- transcription:attachmentId=${attachmentId} -->\n> ## Audio Transcription\n${quoted}\n<!-- /transcription:attachmentId=${attachmentId} -->`;
+    };
+    const transcriptionBlockRegex = (attachmentId: number): RegExp =>
+      new RegExp(`\\n*<!-- transcription:attachmentId=${attachmentId} -->[\\s\\S]*?<!-- /transcription:attachmentId=${attachmentId} -->`);
+
+    // transcriptions are matched to targetAttachments positionally by
+    // fileName (see processNoteAudioAttachments) -- zip the attachment id
+    // back in so each block can be looked up/replaced independent of order.
+    const fileNameToAttachmentId = new Map(targetAttachments.map((a) => [a.name || a.path, a.id]));
+    const transcriptionsWithId = transcriptions
+      .map((t) => ({ ...t, attachmentId: fileNameToAttachmentId.get(t.fileName) }))
+      .filter((t): t is typeof t & { attachmentId: number } => t.attachmentId != null);
 
     // CUSTOM-JOURNAL: CAS-retry the content write against freshly-read
     // content/updatedAt each attempt. Transcripts must never be silently
@@ -1345,9 +1406,11 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     // dropped write here would never be retried), but a blind overwrite
     // could clobber a concurrent user edit -- so only ever commit if nothing
     // changed underneath us since the read, and keep retrying against the
-    // latest content until it succeeds. Also preserves the pre-transcript
-    // updatedAt so a background transcription completing doesn't bump
-    // "recently updated" sort.
+    // latest content until it succeeds. Automatic transcription (force:false)
+    // preserves the pre-transcript updatedAt so background bookkeeping
+    // doesn't bump "recently updated" sort; the manual "Transcribe" button
+    // (force:true) is an explicit user action and should bump updatedAt like
+    // any user edit -- same distinction reanalyzeNote's final write makes.
     const MAX_ATTEMPTS = 5;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       const current = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, createdAt: true, updatedAt: true } });
@@ -1356,10 +1419,21 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         return { transcribedAny: false, message: 'Note no longer exists' };
       }
 
-      const newContent = current.content + appended;
+      // Replace-in-place per attachment instead of blind append -- derived
+      // fresh from current.content every attempt, since a concurrent edit
+      // could itself have added/removed a block between retries.
+      let newContent = current.content;
+      for (const t of transcriptionsWithId) {
+        const block = transcriptionBlock(t.attachmentId, t.transcription);
+        const re = transcriptionBlockRegex(t.attachmentId);
+        newContent = re.test(newContent) ? newContent.replace(re, block) : newContent + block;
+      }
+
       const { count } = await prisma.notes.updateMany({
         where: { id: noteId, content: current.content, updatedAt: current.updatedAt },
-        data: { content: newContent, updatedAt: current.updatedAt },
+        data: force
+          ? { content: newContent } // explicit user action -- let @updatedAt auto-touch
+          : { content: newContent, updatedAt: current.updatedAt }, // automatic/background -- preserve
       });
 
       if (count > 0) {

@@ -115,6 +115,14 @@ export const ZConfigKey = z.union([
   z.literal('tavilyMaxResult'),
   z.literal('searxngUrl'),
   z.literal('isUseAiPostProcessing'),
+  // CUSTOM-JOURNAL: the 4 cascading "AI Features" toggles in AI Settings.
+  // Registered at the same global/superadmin tier as isUseAiPostProcessing
+  // and every other AI setting (mainModelId, voiceModelId, etc) -- all
+  // resolved via AiModelFactory.globalConfig() -> getGlobalConfig({useAdmin:
+  // true}), i.e. AI config in this fork is journal-wide, not per-account.
+  z.literal('isEnableAiFeatures'),
+  z.literal('isUseAiTranscription'),
+  z.literal('isShowAiChatTab'),
   z.literal('aiCommentPrompt'),
   z.literal('aiTagsPrompt'),
   z.literal('aiPostProcessingMode'),
@@ -213,6 +221,9 @@ export const ZConfigSchema = z.object({
   // -- see webSearchTool, which prefers this over tavilyApiKey when set.
   searxngUrl: z.any().optional(),
   isUseAiPostProcessing: z.boolean().optional(),
+  isEnableAiFeatures: z.boolean().optional(),
+  isUseAiTranscription: z.boolean().optional(),
+  isShowAiChatTab: z.boolean().optional(),
   aiCommentPrompt: z.string().optional(),
   aiTagsPrompt: z.string().optional(),
   aiPostProcessingMode: z.string().optional(),

@@ -1,8 +1,9 @@
 import { Icon } from '@/components/Common/Iconify/icons';
-import { Popover, PopoverContent, PopoverTrigger, Select, SelectItem, Button, Radio, RadioGroup, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
+import { Popover, PopoverContent, PopoverTrigger, Select, SelectItem, Button, Checkbox, CheckboxGroup, Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { RootStore } from "@/store";
 import { BlinkoStore } from "@/store/blinkoStore";
+import { observer } from "mobx-react-lite";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { RangeCalendar } from "@heroui/react";
@@ -15,7 +16,7 @@ import { api } from "@/lib/trpc";
 // handleApplyFilter into noteListFilterConfig.sortField/orderBy/moodAxisId.
 const DATE_DESC = 'date:desc';
 
-export default function FilterPop() {
+export default observer(function FilterPop() {
   const { t } = useTranslation();
   const blinkoStore = RootStore.Get(BlinkoStore);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -31,7 +32,7 @@ export default function FilterPop() {
   const [focusedValue, setFocusedValue] = useState(today(getLocalTimeZone()));
   const [tagStatus, setTagStatus] = useState<string>("all");
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
-  const [selectedCondition, setSelectedCondition] = useState<string | null>(null);
+  const [selectedConditions, setSelectedConditions] = useState<string[]>([]);
   const [sortValue, setSortValue] = useState<string>(DATE_DESC);
   const [moodAxes, setMoodAxes] = useState<{ id: number; positiveLabel: string; negativeLabel?: string | null }[]>([]);
 
@@ -65,18 +66,9 @@ export default function FilterPop() {
   // noteList.resetAndCall() (the ?path=all list); since the normal journal
   // view is ?path=notes (noteOnlyList, a *different* PromisePageState),
   // Apply silently refetched a list nobody was looking at and looked like
-  // "sorting doesn't work."
-  const getActiveList = () => {
-    switch (searchParams.get('path')) {
-      case 'notes': return blinkoStore.noteOnlyList;
-      case 'todo': return blinkoStore.todoList;
-      case 'all': return blinkoStore.noteList;
-      case 'archived': return blinkoStore.archivedList;
-      case 'trash': return blinkoStore.trashList;
-      default: return blinkoStore.noteOnlyList;
-    }
-  };
-
+  // "sorting doesn't work." Now shared with every other interactive filter
+  // change (tag-chip click, sidebar tag click) via blinkoStore.applyFilter,
+  // the single source of truth for filter changes -- see blinkoStore.tsx.
   const parseSortValue = (value: string) => {
     const [field, direction, axisId] = value.split(':');
     return {
@@ -105,28 +97,29 @@ export default function FilterPop() {
     });
     setTagStatus(cfg.withoutTag ? 'without' : (cfg.tagId != null ? 'with' : 'all'));
     setSelectedTag(cfg.tagId != null ? String(cfg.tagId) : null);
-    setSelectedCondition(
-      cfg.withLink ? 'hasLink' : cfg.withFile ? 'hasFile' : cfg.isShare ? 'isShare' : cfg.hasTodo ? 'hasTodo' : ''
-    );
+    setSelectedConditions([
+      ...(cfg.withLink ? ['hasLink'] : []),
+      ...(cfg.withFile ? ['hasFile'] : []),
+      ...(cfg.isShare ? ['isShare'] : []),
+      ...(cfg.hasTodo ? ['hasTodo'] : []),
+    ]);
     setSortValue(buildSortValue(cfg.sortField, cfg.orderBy, cfg.moodAxisId));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const handleApplyFilter = () => {
-    blinkoStore.noteListFilterConfig = {
-      ...blinkoStore.noteListFilterConfig,
+    blinkoStore.applyFilter({
       startDate: dateRange.start ? new Date(dateRange.start.toString()) : null,
       endDate: dateRange.end ? new Date(dateRange.end.toString()) : null,
       tagId: selectedTag ? Number(selectedTag) : null,
       withoutTag: tagStatus === 'without',
-      withFile: selectedCondition === 'hasFile',
-      withLink: selectedCondition === 'hasLink',
-      isShare: selectedCondition === 'isShare' ? true : false,
-      hasTodo: selectedCondition === 'hasTodo',
+      withFile: selectedConditions.includes('hasFile'),
+      withLink: selectedConditions.includes('hasLink'),
+      isShare: selectedConditions.includes('isShare') ? true : false,
+      hasTodo: selectedConditions.includes('hasTodo'),
       isArchived: null,
       ...parseSortValue(sortValue)
-    };
-    getActiveList().resetAndCall({});
+    }, searchParams.get('path'));
     setIsOpen(false);
   };
 
@@ -134,11 +127,20 @@ export default function FilterPop() {
     setDateRange({ start: null, end: null });
     setTagStatus("all");
     setSelectedTag(null);
-    setSelectedCondition(null);
+    setSelectedConditions([]);
     setSortValue(DATE_DESC);
 
-    blinkoStore.noteListFilterConfig = {
-      ...blinkoStore.noteListFilterConfig,
+    // CUSTOM-JOURNAL: a tag-chip click (or a previous Apply) can leave
+    // filter params like tagId in the URL (?path=all&tagId=7) -- clearing
+    // only the MobX filter config left the URL stale. Strip every
+    // filter-related param here, keeping the rest (e.g. path) intact; this
+    // is purely a deep-link mirror now (see applyFilter/blinkoStore.tsx),
+    // not something anything re-derives filtering from.
+    const next = new URLSearchParams(searchParams);
+    ['tagId', 'withoutTag', 'withLink', 'withFile', 'hasTodo', 'searchText'].forEach((key) => next.delete(key));
+    setSearchParams(next, { replace: true });
+
+    blinkoStore.applyFilter({
       startDate: null,
       endDate: null,
       tagId: null,
@@ -149,20 +151,7 @@ export default function FilterPop() {
       isShare: null,
       hasTodo: false,
       ...parseSortValue(DATE_DESC)
-    };
-
-    // CUSTOM-JOURNAL: a tag-chip click (or a previous Apply) can leave
-    // filter params like tagId in the URL (?path=all&tagId=7) -- clearing
-    // only the MobX filter config left the URL stale, and since
-    // blinkoStore's useQuery() effect re-derives noteListFilterConfig from
-    // the URL on every path/searchParams change, that stale tagId would
-    // silently reassert itself on the next navigation. Strip every
-    // filter-related param here, keeping the rest (e.g. path) intact.
-    const next = new URLSearchParams(searchParams);
-    ['tagId', 'withoutTag', 'withLink', 'withFile', 'hasTodo', 'searchText'].forEach((key) => next.delete(key));
-    setSearchParams(next, { replace: true });
-
-    getActiveList().resetAndCall({});
+    }, searchParams.get('path'));
     setIsOpen(false);
   };
 
@@ -178,7 +167,12 @@ export default function FilterPop() {
   return (
     <>
       <Button isIconOnly size="sm" variant="light" onPress={() => setIsOpen(true)}>
-        <Icon className="cursor-pointer text-default-600" icon="tabler:filter-bolt" width="24" height="24" />
+        <Icon
+          className={`cursor-pointer ${blinkoStore.hasActiveFilter ? 'text-primary' : 'text-default-600'}`}
+          icon="tabler:filter-bolt"
+          width="24"
+          height="24"
+        />
       </Button>
       <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} placement="center" scrollBehavior="inside" size="sm">
         <ModalContent>
@@ -344,17 +338,16 @@ export default function FilterPop() {
               <Icon icon="material-symbols:conditions" width="20" height="20" />
               {t('other-filters')}
             </div>
-            <RadioGroup
-              value={selectedCondition || ""}
-              onValueChange={setSelectedCondition}
+            <CheckboxGroup
+              value={selectedConditions}
+              onValueChange={setSelectedConditions}
             >
-              <Radio value="">{t('no-condition')}</Radio>
               {conditions.map(condition => (
-                <Radio key={condition.value} value={condition.value}>
+                <Checkbox key={condition.value} value={condition.value}>
                   {condition.label}
-                </Radio>
+                </Checkbox>
               ))}
-            </RadioGroup>
+            </CheckboxGroup>
           </div>
           </ModalBody>
           <ModalFooter className="flex gap-2">
@@ -379,4 +372,4 @@ export default function FilterPop() {
       </Modal>
     </>
   );
-}
+});

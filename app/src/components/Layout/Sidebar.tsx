@@ -93,7 +93,7 @@ export const Sidebar = observer(({ onItemClick }: SidebarProps) => {
 
       <ScrollShadow className="-mr-[16px] mt-[-5px] h-full max-h-full pr-6 hide-scrollbar">
         <div className={`flex flex-col gap-1 mt-4 font-semibold ${base.isSidebarCollapsed ? 'items-center gap-4' : ''}`}>
-          {base.routerList
+          {base.visibleRouterList
             .filter((i) => !i.hiddenSidebar)
             .map((i) => (
               <Link

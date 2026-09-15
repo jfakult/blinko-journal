@@ -4,6 +4,7 @@ import { prisma } from "../prisma";
 import { NotificationType } from "@shared/lib/prismaZodType";
 import { CreateNotification } from "../routerTrpc/notification";
 import { AiService } from "@server/aiServer";
+import { AiModelFactory } from "@server/aiServer/aiModelFactory";
 import { syncNoteTagsFromContent, extractHashtags } from "@server/lib/helper";
 import { logAiTaskStart, logAiTaskFinish } from "@server/lib/aiTaskLog";
 
@@ -192,6 +193,23 @@ export class TagAuditJob extends BaseScheduleJob {
     });
 
     try {
+      // CUSTOM-JOURNAL: skip the whole run cleanly (not per-note) when
+      // AI features or specifically AI Post-Processing (the toggle that
+      // covers exactly this backfill -- tags + mood analysis) are off,
+      // rather than gating each note individually inside the batch loop.
+      // A cron job finding the feature disabled should just no-op for the
+      // entire run and log why.
+      const config = await AiModelFactory.globalConfig();
+      if (!(await AiModelFactory.assertAiEnabled(config)) || !config.isUseAiPostProcessing) {
+        const message = !(await AiModelFactory.assertAiEnabled(config))
+          ? 'AI features are disabled, skipping tag audit run'
+          : 'AI post-processing is disabled, skipping tag audit run';
+        await logAiTaskFinish(taskLogId, 'success', message);
+        const skippedProgress: TagAuditProgress = { ...currentProgress, isRunning: false };
+        await this.saveProgressToCache(skippedProgress);
+        return skippedProgress;
+      }
+
       this.forceStopFlag = false;
       const processedIds = new Set<number>(currentProgress.processedNoteIds || []);
       const failedIds = new Set<number>(currentProgress.failedNoteIds || []);

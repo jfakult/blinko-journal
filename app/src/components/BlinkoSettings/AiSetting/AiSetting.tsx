@@ -21,6 +21,7 @@ import { AiTaskLogSection } from './AiTaskLogSection';
 import { AiHintPromptsSection } from './AiHintPromptsSection';
 import ModelDialogContent from './ModelDialogContent';
 import { McpServersSection } from './McpServersSection';
+import { AiFeaturesToggleSection } from './AiFeaturesToggleSection';
 import { AiSettingStore } from '@/store/aiSettingStore';
 import { Copy } from '../../Common/Copy';
 import { MarkdownRender } from '../../Common/MarkdownRender';
@@ -56,133 +57,161 @@ export default observer(function AiSetting() {
     aiStore.aiProviders.call();
   }, []);
 
+  // CUSTOM-JOURNAL: !== false everywhere below (rather than truthy checks)
+  // so an unset/undefined config value (e.g. before config.call() resolves,
+  // or an install predating these keys) defaults to "on," matching the
+  // seed.ts defaults and avoiding a flash of hidden AI settings on load.
+  const isAiEnabled = blinko.config.value?.isEnableAiFeatures !== false;
+  const isPostProcessingEnabled = blinko.config.value?.isUseAiPostProcessing !== false;
+
   return (
     <div className='flex flex-col gap-4'>
-      <CollapsibleCard icon="hugeicons:ai-magic" title="AI Providers & Models">
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <Button
-              size='md'
-              className='ml-auto'
-              color="primary"
-              startContent={<Icon icon="iconamoon:cloud-add-light" width="20" height="20" />}
-              onPress={() => {
-                RootStore.Get(DialogStore).setData({
-                  isOpen: true,
-                  size: '2xl',
-                  title: 'Add Provider',
-                  content: <ProviderDialogContent />,
-                });
-              }}
-            >
-              {t('add-provider')}
-            </Button>
-          </div>
+      <AiFeaturesToggleSection />
 
-          {aiStore.aiProviders.value?.map(provider => (
-            <ProviderCard key={provider.id} provider={provider as any} />
-          ))}
-        </div>
-      </CollapsibleCard>
-
-      <DefaultModelsSection />
-
-      <EmbeddingSettingsSection />
-
-
-      <GlobalPromptSection />
-
-      <AiPostProcessingSection />
-
-      <AiHintPromptsSection />
-
-      <TagAuditSection />
-
-      <MoodAxisSection />
-
-      <AiTaskLogSection />
-
-      <AiToolsSection />
-
-      {/* CUSTOM-JOURNAL: wrapper + className below exist only so the journal-declutter
-          plugin (plugins/journal-declutter) has a stable selector (.cj-hide-mcp) to hide
-          MCP config via CSS — MCP is embedded inline in this AI tab rather than being its
-          own settings tab, so there was nothing else to hang a selector off of. */}
-      <div className="cj-hide-mcp">
-        <McpServersSection />
-      </div>
-
-      <CollapsibleCard icon="hugeicons:api" title="MCP Integration" className="cj-hide-mcp">
-        <div className="space-y-4">
-          <div className="text-sm text-default-600 mb-4">
-            {t('mcp-integration-desc', 'Model Context Protocol (MCP) integration allows AI assistants to connect to Blinko and use its tools.')}
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <label className="text-sm font-medium text-default-700">Streamable HTTP Endpoint URL</label>
-              <Input
-                value={streamableHttpEndpoint}
-                readOnly
-                className="mt-1"
-                endContent={<Copy size={20} content={streamableHttpEndpoint} />}
-              />
-              <p className="mt-1 text-xs text-success-600">
-                {t('mcp-streamable-http-recommended', 'Recommended for modern MCP clients.')}
-              </p>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-default-700">Legacy SSE Endpoint URL</label>
-              <Input
-                value={sseEndpoint}
-                readOnly
-                className="mt-1"
-                endContent={<Copy size={20} content={sseEndpoint} />}
-              />
-              <p className="mt-1 text-xs text-default-500">
-                {t('mcp-sse-legacy-desc', 'Use this only if your MCP client does not support Streamable HTTP yet.')}
-              </p>
-            </div>
-
-            <div>
-              <label className="text-sm font-medium text-default-700">Authorization Token</label>
-              <Input
-                value={user.userInfo.value?.token || ''}
-                readOnly
-                type="password"
-                className="mt-1"
-                endContent={<Copy size={20} content={user.userInfo.value?.token ?? ''} />}
-              />
-            </div>
-
-            <div>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <label className="text-sm font-medium text-default-700">MCP Client Configuration</label>
-                <Select
-                  aria-label={t('transport-type')}
-                  selectedKeys={[selectedTransport]}
-                  onChange={(e) => setSelectedTransport(e.target.value as McpTransportExample)}
-                  size="sm"
-                  className="w-full sm:max-w-xs"
-                  classNames={{
-                    trigger: 'min-h-10 h-10',
+      {isAiEnabled && (
+        <>
+          <CollapsibleCard icon="hugeicons:ai-magic" title="AI Providers & Models">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <Button
+                  size='md'
+                  className='ml-auto'
+                  color="primary"
+                  startContent={<Icon icon="iconamoon:cloud-add-light" width="20" height="20" />}
+                  onPress={() => {
+                    RootStore.Get(DialogStore).setData({
+                      isOpen: true,
+                      size: '2xl',
+                      title: 'Add Provider',
+                      content: <ProviderDialogContent />,
+                    });
                   }}
                 >
-                  <SelectItem key="streamable-http">Streamable HTTP (Recommended)</SelectItem>
-                  <SelectItem key="sse">SSE (Legacy)</SelectItem>
-                </Select>
+                  {t('add-provider')}
+                </Button>
               </div>
-              <div className="relative">
-                <Copy size={20} content={mcpClientConfig} className="absolute top-4 right-2 z-10" />
-                <MarkdownRender content={`\`\`\`json
+
+              {aiStore.aiProviders.value?.map(provider => (
+                <ProviderCard key={provider.id} provider={provider as any} />
+              ))}
+            </div>
+          </CollapsibleCard>
+
+          <DefaultModelsSection />
+
+          <EmbeddingSettingsSection />
+
+          <GlobalPromptSection />
+
+          <AiHintPromptsSection />
+
+          {/* CUSTOM-JOURNAL: per the "AI Post-Processing" toggle's spec
+              ("blocks AI features... tags and mood analysis"), everything
+              that configures that pipeline specifically is gated here --
+              AiPostProcessingSection (mode selector + prompts),
+              TagAuditSection (the nightly backfill for it), and
+              MoodAxisSection (the dimensions it scores). Its own former
+              internal "Enable AI Post Processing" toggle was removed from
+              AiPostProcessingSection.tsx -- that's now the single "AI
+              Post-Processing" switch at the top of this tab
+              (AiFeaturesToggleSection), same isUseAiPostProcessing key.
+              Everything else in this tab (providers/models, embeddings,
+              AiHintPromptsSection's chat-tab prompts, task log, chat
+              tools/MCP) is generic AI infra, not post-processing specific,
+              so it stays visible regardless of this toggle. */}
+          {isPostProcessingEnabled && (
+            <>
+              <AiPostProcessingSection />
+              <TagAuditSection />
+              <MoodAxisSection />
+            </>
+          )}
+
+          <AiTaskLogSection />
+
+          <AiToolsSection />
+
+          {/* CUSTOM-JOURNAL: wrapper + className below exist only so the journal-declutter
+              plugin (plugins/journal-declutter) has a stable selector (.cj-hide-mcp) to hide
+              MCP config via CSS — MCP is embedded inline in this AI tab rather than being its
+              own settings tab, so there was nothing else to hang a selector off of. */}
+          <div className="cj-hide-mcp">
+            <McpServersSection />
+          </div>
+
+          <CollapsibleCard icon="hugeicons:api" title="MCP Integration" className="cj-hide-mcp">
+            <div className="space-y-4">
+              <div className="text-sm text-default-600 mb-4">
+                {t('mcp-integration-desc', 'Model Context Protocol (MCP) integration allows AI assistants to connect to Blinko and use its tools.')}
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-sm font-medium text-default-700">Streamable HTTP Endpoint URL</label>
+                  <Input
+                    value={streamableHttpEndpoint}
+                    readOnly
+                    className="mt-1"
+                    endContent={<Copy size={20} content={streamableHttpEndpoint} />}
+                  />
+                  <p className="mt-1 text-xs text-success-600">
+                    {t('mcp-streamable-http-recommended', 'Recommended for modern MCP clients.')}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-default-700">Legacy SSE Endpoint URL</label>
+                  <Input
+                    value={sseEndpoint}
+                    readOnly
+                    className="mt-1"
+                    endContent={<Copy size={20} content={sseEndpoint} />}
+                  />
+                  <p className="mt-1 text-xs text-default-500">
+                    {t('mcp-sse-legacy-desc', 'Use this only if your MCP client does not support Streamable HTTP yet.')}
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium text-default-700">Authorization Token</label>
+                  <Input
+                    value={user.userInfo.value?.token || ''}
+                    readOnly
+                    type="password"
+                    className="mt-1"
+                    endContent={<Copy size={20} content={user.userInfo.value?.token ?? ''} />}
+                  />
+                </div>
+
+                <div>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <label className="text-sm font-medium text-default-700">MCP Client Configuration</label>
+                    <Select
+                      aria-label={t('transport-type')}
+                      selectedKeys={[selectedTransport]}
+                      onChange={(e) => setSelectedTransport(e.target.value as McpTransportExample)}
+                      size="sm"
+                      className="w-full sm:max-w-xs"
+                      classNames={{
+                        trigger: 'min-h-10 h-10',
+                      }}
+                    >
+                      <SelectItem key="streamable-http">Streamable HTTP (Recommended)</SelectItem>
+                      <SelectItem key="sse">SSE (Legacy)</SelectItem>
+                    </Select>
+                  </div>
+                  <div className="relative">
+                    <Copy size={20} content={mcpClientConfig} className="absolute top-4 right-2 z-10" />
+                    <MarkdownRender content={`\`\`\`json
 ${mcpClientConfig}
 \`\`\``} />
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </CollapsibleCard>
+          </CollapsibleCard>
+        </>
+      )}
     </div>
   );
 });

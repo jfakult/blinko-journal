@@ -29,6 +29,8 @@ import { SentimentView } from "@/components/Common/SentimentView";
 import { moodAxis } from "@shared/lib/prismaZodType";
 import { showTipsDialog } from "@/components/Common/TipsDialog";
 import { DialogStandaloneStore } from "@/store/module/DialogStandalone";
+import dayjs from "@/lib/dayjs";
+import { aiTaskLog } from "@shared/lib/prismaZodType";
 
 
 export const ShowEditTimeModel = (showExpired: boolean = false) => {
@@ -399,6 +401,90 @@ const handleViewSentiments = () => {
   })
 }
 
+const InfoRow = ({ label, value }: { label: string; value: string }) => (
+  <div className="flex items-center justify-between gap-4 text-sm py-1 border-b border-default-100 last:border-b-0">
+    <span className="text-default-500">{label}</span>
+    <span className="text-right">{value}</span>
+  </div>
+)
+
+// CUSTOM-JOURNAL: "Info" -- a "nitty gritty details" panel for interested
+// users, deliberately NOT duplicating tags (TagList on the card) or mood
+// scores ("View Sentiments" above) which already have dedicated UI. Fields
+// come straight off the already-loaded note object (notes.list has no
+// restrictive select, returns all scalars -- see notesSchema) except the AI
+// Task Log rows (attempts / time to generate), fetched on open via
+// aiTaskLogList's noteId filter. Reuses the same centered DialogStore modal
+// ViewSentiments above uses.
+const InfoDialogContent = observer(() => {
+  const blinko = RootStore.Get(BlinkoStore)
+  const note = blinko.curSelectedNote
+  const [logs, setLogs] = useState<aiTaskLog[] | null>(null)
+
+  useEffect(() => {
+    if (!note?.id) return
+    api.ai.aiTaskLogList.query({ noteId: note.id, size: 50 }).then(setLogs).catch(() => setLogs([]))
+  }, [note?.id])
+
+  const fmt = (d: any) => d ? dayjs(d).format('YYYY-MM-DD HH:mm:ss') : i18n.t('never')
+
+  return (
+    <div className="flex flex-col gap-4 max-h-[70vh] overflow-y-auto">
+      <div className="flex flex-col">
+        <InfoRow label="ID" value={String(note?.id ?? '-')} />
+        <InfoRow label={i18n.t('created-at')} value={fmt(note?.createdAt)} />
+        <InfoRow label={i18n.t('updated-at')} value={fmt(note?.updatedAt)} />
+        <InfoRow label={i18n.t('ai-tagged-at')} value={fmt(note?.aiTaggedAt)} />
+        <InfoRow label={i18n.t('content-length')} value={String(note?.contentLength ?? note?.content?.length ?? 0)} />
+        <InfoRow label={i18n.t('is-top')} value={note?.isTop ? i18n.t('yes') : i18n.t('no')} />
+        <InfoRow label={i18n.t('is-archived')} value={note?.isArchived ? i18n.t('yes') : i18n.t('no')} />
+        <InfoRow label={i18n.t('is-reviewed')} value={note?.isReviewed ? i18n.t('yes') : i18n.t('no')} />
+        <InfoRow label={i18n.t('is-shared')} value={note?.isShare ? i18n.t('yes') : i18n.t('no')} />
+        {note?.isShare && (
+          <InfoRow label={i18n.t('share-view-count')} value={`${note?.shareViewCount ?? 0}${note?.shareMaxView ? ` / ${note.shareMaxView}` : ''}`} />
+        )}
+        {note?.attachments?.map(a => (
+          <InfoRow key={a.id} label={`${i18n.t('transcribed-at')}: ${a.name}`} value={fmt(a.transcribedAt)} />
+        ))}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="text-sm font-medium">{i18n.t('ai-task-history')}</div>
+        {logs == null ? (
+          <div className="flex justify-center py-4"><Icon icon="line-md:loading-twotone-loop" width="20" height="20" /></div>
+        ) : logs.length === 0 ? (
+          <div className="text-desc text-sm">{i18n.t('no-ai-activity-yet')}</div>
+        ) : (
+          <div className="flex flex-col gap-1">
+            {logs.map(log => (
+              <div key={log.id} className="text-xs flex justify-between gap-2">
+                <span>{log.taskType} · {log.status}</span>
+                <span>{log.finishedAt ? `${dayjs(log.finishedAt).diff(dayjs(log.startedAt), 'second')}s` : '…'}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+})
+
+const handleInfo = () => {
+  RootStore.Get(DialogStore).setData({
+    isOpen: true,
+    title: i18n.t('info'),
+    content: <InfoDialogContent />
+  })
+}
+
+export const InfoItem = observer(() => {
+  const { t } = useTranslation();
+  return <div className="flex items-start gap-2">
+    <Icon icon="proicons:info" width="20" height="20" />
+    <div>{t('info')}</div>
+  </div>
+})
+
 const handleTrash = () => {
   const blinko = RootStore.Get(BlinkoStore)
   showTipsDialog({
@@ -633,6 +719,10 @@ export const BlinkoRightClickMenu = observer(() => {
       <EditTimeItem />
     </ContextMenuItem>
 
+    <ContextMenuItem onClick={handleInfo}>
+      <InfoItem />
+    </ContextMenuItem>
+
     <ContextMenuItem onClick={handleTop}>
       <TopItem />
     </ContextMenuItem>
@@ -659,25 +749,43 @@ export const BlinkoRightClickMenu = observer(() => {
       <AddTagItem />
     </ContextMenuItem>
 
-    {blinko.config.value?.mainModelId ? (
+    {/* CUSTOM-JOURNAL: AI items gated on the 4 cascading "AI Features"
+        toggles (AI Settings) in addition to their model being configured --
+        TranscribeItem now checks voiceModelId (the model it actually needs)
+        instead of mainModelId, which was arguably always the wrong check;
+        ReanalyzeItem additionally requires the "AI Post-Processing" toggle
+        since it triggers the tags+mood pipeline that toggle covers (the
+        backend itself still permits an already-open menu's click through
+        regardless, see reanalyzeNote -- hiding the button is a
+        discoverability choice, not a data-integrity one); RelatedNotesItem
+        and ViewSentimentsItem are gated on the master toggle only, since
+        embeddings search and mood-score *display* aren't "using AI" in the
+        sense the other toggles mean to block. */}
+    {blinko.config.value?.isEnableAiFeatures !== false
+      && blinko.config.value?.isUseAiTranscription !== false
+      && blinko.config.value?.voiceModelId ? (
       <ContextMenuItem onClick={handleTranscribe}>
         <TranscribeItem />
       </ContextMenuItem>
     ) : <></>}
 
-    {blinko.config.value?.mainModelId ? (
+    {blinko.config.value?.isEnableAiFeatures !== false
+      && blinko.config.value?.isUseAiPostProcessing
+      && blinko.config.value?.mainModelId ? (
       <ContextMenuItem onClick={handleReanalyze}>
         <ReanalyzeItem />
       </ContextMenuItem>
     ) : <></>}
 
-    {blinko.config.value?.mainModelId ? (
+    {blinko.config.value?.isEnableAiFeatures !== false
+      && blinko.config.value?.mainModelId ? (
       <ContextMenuItem onClick={handleRelatedNotes}>
         <RelatedNotesItem />
       </ContextMenuItem>
     ) : <></>}
 
-    {blinko.config.value?.mainModelId ? (
+    {blinko.config.value?.isEnableAiFeatures !== false
+      && blinko.config.value?.mainModelId ? (
       <ContextMenuItem onClick={handleViewSentiments}>
         <ViewSentimentsItem />
       </ContextMenuItem>
@@ -738,6 +846,7 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
         </>
       ) : null}
       <DropdownItem key="EditTimeItem" onPress={() => ShowEditTimeModel()}> <EditTimeItem /></DropdownItem>
+      <DropdownItem key="InfoItem" onPress={handleInfo}> <InfoItem /></DropdownItem>
       <DropdownItem key="TopItem" onPress={handleTop}> <TopItem />  </DropdownItem>
       {blinko.curSelectedNote?.isRecycle ? (
         <DropdownItem key="RestoreItem" onPress={handleRestore}>
@@ -761,25 +870,31 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
         <AddTagItem />
       </DropdownItem>
 
-      {blinko.config.value?.mainModelId ? (
+      {blinko.config.value?.isEnableAiFeatures !== false
+        && blinko.config.value?.isUseAiTranscription !== false
+        && blinko.config.value?.voiceModelId ? (
         <DropdownItem key="TranscribeItem" onPress={handleTranscribe}>
           <TranscribeItem />
         </DropdownItem>
       ) : <></>}
 
-      {blinko.config.value?.mainModelId ? (
+      {blinko.config.value?.isEnableAiFeatures !== false
+        && blinko.config.value?.isUseAiPostProcessing
+        && blinko.config.value?.mainModelId ? (
         <DropdownItem key="ReanalyzeItem" onPress={handleReanalyze}>
           <ReanalyzeItem />
         </DropdownItem>
       ) : <></>}
 
-      {blinko.config.value?.mainModelId ? (
+      {blinko.config.value?.isEnableAiFeatures !== false
+        && blinko.config.value?.mainModelId ? (
         <DropdownItem key="RelatedNotesItem" onPress={handleRelatedNotes}>
           <RelatedNotesItem />
         </DropdownItem>
       ) : <></>}
 
-      {blinko.config.value?.mainModelId ? (
+      {blinko.config.value?.isEnableAiFeatures !== false
+        && blinko.config.value?.mainModelId ? (
         <DropdownItem key="ViewSentimentsItem" onPress={handleViewSentiments}>
           <ViewSentimentsItem />
         </DropdownItem>

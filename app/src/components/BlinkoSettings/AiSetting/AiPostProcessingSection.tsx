@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { Switch, Select, SelectItem, Textarea, Button, Tooltip } from '@heroui/react';
+import { Select, SelectItem, Textarea, Button, Tooltip } from '@heroui/react';
 import { Icon } from '@/components/Common/Iconify/icons';
 import { CollapsibleCard } from '../../Common/CollapsibleCard';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,7 @@ import { RootStore } from '@/store';
 import { BlinkoStore } from '@/store/blinkoStore';
 import { PromiseCall } from '@/store/standard/PromiseState';
 import { api } from '@/lib/trpc';
-import { Item, ItemWithTooltip } from '../Item';
+import { Item } from '../Item';
 import { useMediaQuery } from 'usehooks-ts';
 
 export const AiPostProcessingSection = observer(() => {
@@ -16,7 +16,6 @@ export const AiPostProcessingSection = observer(() => {
   const blinko = RootStore.Get(BlinkoStore);
   const isPc = useMediaQuery('(min-width: 768px)');
 
-  const [isUseAiPostProcessing, setIsUseAiPostProcessing] = useState(false);
   const [aiPostProcessingMode, setAiPostProcessingMode] = useState('comment');
   const [aiCommentPrompt, setAiCommentPrompt] = useState('');
   const [aiSmartEditPrompt, setAiSmartEditPrompt] = useState('');
@@ -28,7 +27,6 @@ export const AiPostProcessingSection = observer(() => {
 
   useEffect(() => {
     if (blinko.config.value) {
-      setIsUseAiPostProcessing(blinko.config.value.isUseAiPostProcessing || false);
       setAiPostProcessingMode(blinko.config.value.aiPostProcessingMode || 'comment');
       setAiCommentPrompt(blinko.config.value.aiCommentPrompt || '');
       setAiSmartEditPrompt(blinko.config.value.aiSmartEditPrompt || '');
@@ -45,38 +43,13 @@ export const AiPostProcessingSection = observer(() => {
     });
   };
 
+  // CUSTOM-JOURNAL: this section's own "Enable AI Post Processing" toggle
+  // was removed -- AiSetting.tsx only renders this component at all when
+  // the "AI Post-Processing" switch (same isUseAiPostProcessing config key,
+  // now the single source of truth for it) is on, in AiFeaturesToggleSection.
   return (
     <CollapsibleCard icon="hugeicons:ai-innovation-01" title="AI Post Processing">
-      <Item
-        leftContent={
-          <ItemWithTooltip
-            content={<>{t('enable-ai-post-processing')}</>}
-            toolTipContent={
-              <div className="w-[300px] flex flex-col gap-2">
-                <div>
-                  {t('automatically-process-notes-after-creation-or-update')}
-                </div>
-                <div>
-                  {t('can-generate-summaries-tags-or-perform-analysis')}
-                </div>
-              </div>
-            }
-          />
-        }
-        rightContent={
-          <Switch
-            isSelected={isUseAiPostProcessing}
-            onChange={(e) => {
-              const checked = e.target.checked;
-              setIsUseAiPostProcessing(checked);
-              updateConfig('isUseAiPostProcessing', checked);
-            }}
-          />
-        }
-      />
-
-      {isUseAiPostProcessing && (
-        <>
+      <>
           <Item
             type={isPc ? 'row' : 'col'}
             leftContent={
@@ -254,8 +227,7 @@ export const AiPostProcessingSection = observer(() => {
               }
             />
           )}
-        </>
-      )}
+      </>
     </CollapsibleCard>
   );
 });

@@ -123,6 +123,24 @@ export class BlinkoStore implements Store {
     moodAxisId: null as number | null,
     orderBy: 'desc' as 'asc' | 'desc'
   }
+  // CUSTOM-JOURNAL: drives the filter button's active/highlighted state in
+  // FilterPop -- true whenever any filter field differs from its "no filter
+  // applied" default. isArchived/isRecycle/type/sortField/orderBy are
+  // deliberately excluded: those are view-mode/sort selections, not
+  // "filters" in the sense this indicator is meant to surface.
+  get hasActiveFilter(): boolean {
+    const cfg = this.noteListFilterConfig;
+    return (
+      cfg.tagId != null ||
+      cfg.withoutTag ||
+      cfg.withFile ||
+      cfg.withLink ||
+      !!cfg.isShare ||
+      cfg.hasTodo ||
+      cfg.startDate != null ||
+      cfg.endDate != null
+    );
+  }
   noteTypeDefault: NoteType = NoteType.BLINKO
   currentCommonFilter: filterType | null = null
   updateTicker = 0
@@ -619,11 +637,22 @@ export class BlinkoStore implements Store {
     const [searchParams] = useSearchParams();
     const location = useLocation();
     useEffect(() => {
+      // CUSTOM-JOURNAL: this effect's job is now ONLY the cold-load/deep-link
+      // case (a URL with filter params arriving with no prior interactive
+      // state, e.g. a pasted ?path=all&tagId=7 link) and path-tab switching.
+      // Ordinary interactive filter changes (tag-chip click, sidebar tag
+      // click, FilterPop Apply/Reset) go through applyFilter()/
+      // updateTagFilter() directly (see those methods) and don't depend on
+      // this effect at all anymore. This used to early-return here whenever
+      // the URL's tagId already matched noteListFilterConfig.tagId -- which
+      // silently skipped the resetAndCall() below (the only thing that
+      // actually re-queries the backend) on repeat/rapid tag interactions,
+      // even though the URL/UI looked correctly filtered. Removed outright
+      // rather than tightened, since the direct-write path above now owns
+      // every interactive case this guard was trying to shortcut; any
+      // resulting redundant re-fetch here is harmless (not state-corrupting)
+      // once PromiseState's loadingLock fix is in place.
       const tagId = searchParams.get('tagId');
-      if (tagId && Number(tagId) === this.noteListFilterConfig.tagId) {
-        return;
-      }
-      
       const withoutTag = searchParams.get('withoutTag');
       const withFile = searchParams.get('withFile');
       const withLink = searchParams.get('withLink');
@@ -725,9 +754,38 @@ export class BlinkoStore implements Store {
     this.updateTicker++;
   }
 
+  // CUSTOM-JOURNAL: single source of truth for "which list is active" for a
+  // given ?path= value -- previously duplicated between here (implicitly,
+  // via updateTagFilter always targeting noteList) and FilterPop's own local
+  // getActiveList(). Centralized so every filter-changing call site shares
+  // one answer.
+  getActiveList(path: string | null) {
+    switch (path) {
+      case 'notes': return this.noteOnlyList;
+      case 'todo': return this.todoList;
+      case 'all': return this.noteList;
+      case 'archived': return this.archivedList;
+      case 'trash': return this.trashList;
+      default: return this.noteOnlyList;
+    }
+  }
+
+  // CUSTOM-JOURNAL: single source of truth for filter changes -- every
+  // interactive filter action (tag-chip click, sidebar tag click, FilterPop
+  // Apply/Reset) should go through this instead of writing
+  // noteListFilterConfig directly or relying on useQuery()'s URL-parsing
+  // effect to pick it up. Order matters: (1) apply the patch to
+  // noteListFilterConfig synchronously so any code reading it immediately
+  // after this call (e.g. FilterPop reopening) sees the new state, (2)
+  // resetAndCall() on whichever list is actually on screen right now -- the
+  // URL (updated separately, by the caller) is a deep-link mirror of this
+  // state, not the trigger for it.
+  applyFilter(patch: Partial<typeof this.noteListFilterConfig>, path: string | null) {
+    Object.assign(this.noteListFilterConfig, patch);
+    this.getActiveList(path).resetAndCall({});
+  }
+
   updateTagFilter(tagId: number) {
-    this.noteListFilterConfig.tagId = tagId;
-    this.noteListFilterConfig.type = -1
-    this.noteList.resetAndCall({});
+    this.applyFilter({ tagId, type: -1 }, 'all');
   }
 }

@@ -101,6 +101,13 @@ export const aiRouter = router({
     }))
     .mutation(async function* ({ input, ctx }) {
       try {
+        // CUSTOM-JOURNAL: master AI killswitch -- the AI Chat tab's actual
+        // backend, gated here alongside the other AI-chat-adjacent
+        // procedures below (writing, autoEmoji, AIComment,
+        // summarizeConversationTitle).
+        if (!(await AiModelFactory.assertAiEnabled())) {
+          throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
+        }
         const { question, conversations, withTools = false, systemPrompt } = input
         let _conversations = conversations as CoreMessage[]
         // CUSTOM-JOURNAL: RAG and web search are the whole point of this chat
@@ -167,6 +174,9 @@ export const aiRouter = router({
       conversationId: z.number()
     }))
     .mutation(async function ({ input }) {
+      if (!(await AiModelFactory.assertAiEnabled())) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
+      }
       const { conversations, conversationId } = input
       const agent = await AiModelFactory.SummarizeAgent()
       const conversationString = JSON.stringify(
@@ -191,6 +201,9 @@ export const aiRouter = router({
       content: z.string().optional()
     }))
     .mutation(async function* ({ input }) {
+      if (!(await AiModelFactory.assertAiEnabled())) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
+      }
       const { question, type = 'custom', content } = input
       const agent = await AiModelFactory.WritingAgent(type)
       const result = await agent.stream([
@@ -238,6 +251,9 @@ export const aiRouter = router({
       content: z.string()
     }))
     .mutation(async function ({ input }) {
+      if (!(await AiModelFactory.assertAiEnabled())) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
+      }
       const { content } = input
       const agent = await AiModelFactory.EmojiAgent()
       const result = await agent.generate("Please select and suggest appropriate emojis for the above content" + content)
@@ -250,6 +266,9 @@ export const aiRouter = router({
       noteId: z.number()
     }))
     .mutation(async function ({ input }) {
+      if (!(await AiModelFactory.assertAiEnabled())) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
+      }
       return await AiService.AIComment(input)
     }),
 
@@ -400,11 +419,17 @@ export const aiRouter = router({
       page: z.number().default(1),
       size: z.number().default(20),
       scope: z.enum(['mine', 'all']).default('mine'),
+      // CUSTOM-JOURNAL: powers the right-click "Info" panel's per-note AI
+      // attempt/timing history.
+      noteId: z.number().optional(),
     }))
     .output(z.array(aiTaskLogSchema))
     .query(async ({ input, ctx }) => {
       const isSuperAdmin = ctx.role === 'superadmin';
-      const where = isSuperAdmin && input.scope === 'all' ? {} : { accountId: Number(ctx.id) };
+      const where = {
+        ...(isSuperAdmin && input.scope === 'all' ? {} : { accountId: Number(ctx.id) }),
+        ...(input.noteId != null && { noteId: input.noteId }),
+      };
       const rows = await prisma.aiTaskLog.findMany({
         where,
         orderBy: { startedAt: 'desc' },

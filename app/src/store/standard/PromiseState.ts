@@ -212,11 +212,20 @@ export class PromisePageState<T extends (...args: any) => Promise<any>, U = Retu
     const toast = RootStore.Get(ToastPlugin);
     const base = RootStore.Get(BaseStore);
 
+    // CUSTOM-JOURNAL: moved outside try/finally -- the old version's early
+    // `return` from inside the try still ran the finally block below, which
+    // unconditionally sets loading=false. That's correct for the call that
+    // actually owns the in-flight request, but wrong for a guarded/no-op
+    // call that never started one: it could flip loading=false while a
+    // different real call for the same list was still in flight, letting UI
+    // code that gates on `loading` (e.g. isSyncingList in pages/index.tsx)
+    // act on a call that hasn't finished yet.
+    if (this.loadingLock && this.loading.value == true) {
+      console.warn('loadingLock', this.loading.value);
+      return
+    };
+
     try {
-      if (this.loadingLock && this.loading.value == true) {
-        console.warn('loadingLock', this.loading.value);
-        return
-      };
       this.loading.setValue(true);
       if (args?.[0]) {
         Object.assign(args?.[0], { page: this.page, size: Number(this.size.value) })

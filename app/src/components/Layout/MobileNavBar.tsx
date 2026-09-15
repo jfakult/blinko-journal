@@ -32,7 +32,7 @@ export const MobileNavBar = observer(({ onItemClick }: MobileNavBarProps) => {
 
   // Get all visible items for mobile, including those that might be hidden in sidebar
   // Make sure to include items even if they have hiddenSidebar=true but hiddenMobile=false
-  const mobileItems = base.routerList.filter(i => !i.hiddenMobile);
+  const mobileItems = base.visibleRouterList.filter(i => !i.hiddenMobile);
 
   return (
     <motion.div

@@ -1645,6 +1645,13 @@ export const noteRouter = router({
     .mutation(async function ({ input, ctx }) {
       const { page, size, orderBy } = input;
 
+      // CUSTOM-JOURNAL: was hardcoded to updatedAt -- this is a personal,
+      // authenticated view of notes (conceptually the same "note list"
+      // experience as the main list), so it shouldn't silently diverge from
+      // the user's chosen display/sort preference (isOrderByCreateTime).
+      const config = await getGlobalConfig({ ctx });
+      const sortOrderBy: any = config?.isOrderByCreateTime ? { createdAt: orderBy } : { updatedAt: orderBy };
+
       return await prisma.notes.findMany({
         where: {
           isRecycle: false,
@@ -1654,7 +1661,7 @@ export const noteRouter = router({
             }
           }
         },
-        orderBy: [{ updatedAt: orderBy }],
+        orderBy: [sortOrderBy],
         skip: (page - 1) * size,
         take: size,
         include: {

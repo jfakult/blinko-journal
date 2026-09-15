@@ -233,6 +233,13 @@ export const AudioRender = observer(({ files, preview = false }: Props) => {
     const [isVoicePlaying, setIsVoicePlaying] = useState(false);
     const [voiceCurrentTime, setVoiceCurrentTime] = useState(0);
     const [voiceProgress, setVoiceProgress] = useState(0);
+    // CUSTOM-JOURNAL: this component's own captured duration (from its own
+    // audioRef's 'loadedmetadata'/'durationchange' events), independent of
+    // fileDuration/getDuration() -- which checks DB metadata, client props,
+    // the OTHER (music/track-style) player's state, and the shared
+    // musicManager, but never this component's own element, and is
+    // frequently empty for a voice message this component just loaded.
+    const [voiceDurationSeconds, setVoiceDurationSeconds] = useState<number | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const animationFrameRef = useRef<number | null>(null);
 
@@ -261,6 +268,13 @@ export const AudioRender = observer(({ files, preview = false }: Props) => {
 
         audioRef.current.addEventListener('ended', handleVoiceEnded);
         audioRef.current.addEventListener('timeupdate', updateVoiceProgress);
+        // CUSTOM-JOURNAL: 'durationchange' is a fallback alongside
+        // 'loadedmetadata' for formats where duration isn't known yet at the
+        // loadedmetadata event (e.g. some streamed/chunked audio) -- both
+        // call the same handler, which just takes whatever finite duration
+        // is available whenever it fires.
+        audioRef.current.addEventListener('loadedmetadata', captureVoiceDuration);
+        audioRef.current.addEventListener('durationchange', captureVoiceDuration);
       }
 
       return () => {
@@ -270,6 +284,8 @@ export const AudioRender = observer(({ files, preview = false }: Props) => {
         if (audioRef.current) {
           audioRef.current.removeEventListener('ended', handleVoiceEnded);
           audioRef.current.removeEventListener('timeupdate', updateVoiceProgress);
+          audioRef.current.removeEventListener('loadedmetadata', captureVoiceDuration);
+          audioRef.current.removeEventListener('durationchange', captureVoiceDuration);
           audioRef.current.removeEventListener('error', () => {});
           audioRef.current.removeEventListener('canplaythrough', () => {});
           audioRef.current.pause();
@@ -277,6 +293,14 @@ export const AudioRender = observer(({ files, preview = false }: Props) => {
         }
       };
     }, [file.preview]);
+
+    // CUSTOM-JOURNAL: captures this voice message's own real audio duration
+    // directly off its independent audioRef -- see voiceDurationSeconds
+    // above for why this can't be sourced from getDuration(file)/fileDuration.
+    const captureVoiceDuration = () => {
+      const d = audioRef.current?.duration;
+      if (d && isFinite(d) && d > 0) setVoiceDurationSeconds(d);
+    };
 
     const updateVoiceProgress = () => {
       if (!audioRef.current) return;
@@ -421,10 +445,18 @@ export const AudioRender = observer(({ files, preview = false }: Props) => {
           </div>
 
           {/* Duration */}
-          <div className="text-xs text-gray-600 dark:text-gray-400 font-medium min-w-[35px] text-right">
-            {isVoicePlaying && voiceCurrentTime > 0
-              ? formatTime(voiceCurrentTime)
-              : fileDuration || "0:00"
+          {/* CUSTOM-JOURNAL: was current-time-only while playing (no total)
+              and fell back to fileDuration (frequently empty for a voice
+              message, see getDuration()) while paused, producing "0:00" for
+              basically every unplayed voice attachment. Now prefers this
+              element's own captured duration (voiceDurationSeconds, raw
+              seconds, formatted only here at render time) with fileDuration
+              as a fallback only when this element hasn't reported a
+              duration yet. */}
+          <div className="text-xs text-gray-600 dark:text-gray-400 font-medium min-w-[45px] text-right">
+            {isVoicePlaying
+              ? `${formatTime(voiceCurrentTime)} / ${voiceDurationSeconds != null ? formatTime(voiceDurationSeconds) : (fileDuration || "0:00")}`
+              : (voiceDurationSeconds != null ? formatTime(voiceDurationSeconds) : (fileDuration || "0:00"))
             }
           </div>
 

@@ -7,6 +7,13 @@ import { useTranslation } from 'react-i18next';
 import { useMediaQuery } from 'usehooks-ts';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { stripBasePath } from '@/lib/basePath';
+import { RootStore } from './root';
+// CUSTOM-JOURNAL: blinkoStore.tsx already imports BaseStore, so this is a
+// circular import at the module-graph level -- safe here because BlinkoStore
+// is only referenced inside routerList's getter body (below), not at
+// top-level/module-evaluation time, so both modules are fully loaded by the
+// time it's actually called (component render time).
+import { BlinkoStore } from './blinkoStore';
 export class BaseStore implements Store {
   sid = 'BaseStore';
   constructor() {
@@ -21,6 +28,15 @@ export class BaseStore implements Store {
   // is configured (see user.ts::initializeSettings, now hub-only) - for this journal
   // the RAG-backed chat/recall page is a core feature, not an optional extra, so it's
   // a static entry here instead of conditionally spliced in at runtime.
+  //
+  // CUSTOM-JOURNAL: kept as a plain mutable array (NOT a computed getter) --
+  // user.ts's initializeSettings splices a "hub" route into/out of this
+  // exact array at runtime, which only works against a stable array
+  // reference; a getter rebuilding a fresh array on every access would
+  // silently discard that splice the next time anything read routerList.
+  // AI-toggle-based visibility is instead exposed as a separate computed,
+  // visibleRouterList below, which every render consumer (MobileNavBar,
+  // Sidebar, UserAvatarDropdown, PerferSetting) uses instead of this raw list.
   routerList = [
     {
       title: 'notes',
@@ -77,6 +93,15 @@ export class BaseStore implements Store {
       icon: 'hugeicons:settings-01',
     },
   ];
+  // CUSTOM-JOURNAL: the "ai" entry hidden per the "AI Features" master toggle
+  // and "AI Chat Tab" toggle (AI Settings) -- `!== false` so an
+  // unset/undefined config value (before config.call() resolves) defaults
+  // to visible, matching the seed.ts defaults.
+  get visibleRouterList() {
+    const config = RootStore.Get(BlinkoStore).config.value;
+    const aiTabVisible = config?.isEnableAiFeatures !== false && config?.isShowAiChatTab !== false;
+    return aiTabVisible ? this.routerList : this.routerList.filter(item => item.title !== 'ai');
+  }
   currentRouter = this.routerList[0];
   currentQuery = {};
   currentTitle = '';

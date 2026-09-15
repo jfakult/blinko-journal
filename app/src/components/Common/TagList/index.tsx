@@ -53,12 +53,24 @@ export const TagList = observer(({ noteId, tags, maxVisible = 3, createdAt, upda
   const goToTag = (path: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const tagId = pathToId.get(path);
+    // CUSTOM-JOURNAL: was navigate()-only + forceQuery++, relying entirely
+    // on useQuery()'s URL-parsing effect to pick up the new tagId/searchText
+    // and refetch. That effect used to have an early-return guard that
+    // silently skipped the refetch whenever the URL's tagId already equaled
+    // noteListFilterConfig.tagId, which made repeated/rapid tag clicks
+    // appear "broken" -- URL/UI updated, list never did. Write the filter
+    // directly instead (same path the sidebar's tag click already used, see
+    // updateTagFilter/applyFilter in blinkoStore.tsx) so filtering never
+    // depends on that effect at all; navigate() below is now purely a URL
+    // mirror for deep-linking, not the refetch trigger.
     if (tagId != null) {
-      navigate(`/?path=all&tagId=${tagId}`);
+      blinko.updateTagFilter(tagId);
+      navigate(`/?path=all&tagId=${tagId}`, { replace: true });
     } else {
-      navigate(`/?path=all&searchText=${encodeURIComponent('#' + path)}`);
+      blinko.searchText = '#' + path;
+      blinko.getActiveList('all').resetAndCall({});
+      navigate(`/?path=all&searchText=${encodeURIComponent('#' + path)}`, { replace: true });
     }
-    blinko.forceQuery++;
   };
 
   const attach = (path: string) => {
