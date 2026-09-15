@@ -113,6 +113,13 @@ model notes {
   // CUSTOM-JOURNAL: per-note mood scores, keyed by moodAxis.id (as a string,
   // since JSON object keys are always strings), e.g. {"1": 72, "2": 40}.
   moodScores        Json?           @db.JsonB
+  // CUSTOM-JOURNAL: set whenever this note's content was last embedded into
+  // the RAG vector index (see AiService.embedNoteWithMetadata); null means
+  // never embedded (or not yet -- embedding is deliberately deferred until
+  // after AI post-processing/tagging completes, so RAG waits on aiTaggedAt
+  // when post-processing is enabled). Surfaced in the right-click "Info"
+  // panel so it's visible per-note whether/when RAG has picked it up.
+  embeddedAt        DateTime?       @db.Timestamptz(6)
   attachments       attachments[]
   tags              tagsToNote[]
   account           accounts?       @relation(fields: [accountId], references: [id])

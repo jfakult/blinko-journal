@@ -48,10 +48,17 @@ export const aiRouter = router({
       content: z.string(),
       type: z.enum(['update', 'insert'])
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, content, type } = input
-      const createTime = await prisma.notes.findUnique({ where: { id } }).then(i => i?.createdAt)
-      const { ok, error } = await AiService.embeddingUpsert({ id, content, type, createTime: createTime! })
+      // CUSTOM-JOURNAL: this note's id was previously trusted blindly -- any
+      // authenticated user could upsert a vector under ANY note's id/
+      // accountId, overwriting another account's embedded content with
+      // arbitrary text. Verify ownership first.
+      const note = await prisma.notes.findUnique({ where: { id }, select: { createdAt: true, accountId: true } })
+      if (!note || note.accountId !== Number(ctx.id)) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Note not found or not owned by you' })
+      }
+      const { ok, error } = await AiService.embeddingUpsert({ id, content, type, createTime: note.createdAt!, accountId: Number(ctx.id) })
       if (!ok) {
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
@@ -66,10 +73,14 @@ export const aiRouter = router({
       id: z.number(),
       filePath: z.string() //api/file/text.pdf
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id, filePath } = input
+      const note = await prisma.notes.findUnique({ where: { id }, select: { accountId: true } })
+      if (!note || note.accountId !== Number(ctx.id)) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Note not found or not owned by you' })
+      }
       try {
-        const res = await AiService.embeddingInsertAttachments({ id, filePath })
+        const res = await AiService.embeddingInsertAttachments({ id, filePath, accountId: Number(ctx.id) })
         return res
       } catch (error) {
         return { ok: false, msg: error?.message }
@@ -80,10 +91,17 @@ export const aiRouter = router({
     .input(z.object({
       id: z.number()
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { id } = input
+      // CUSTOM-JOURNAL: unlike embeddingUpsert/embeddingInsertAttachments,
+      // this fires AFTER the note is already hard-deleted (see
+      // BlinkoRightClickMenu's handleDelete: notes.deleteMany awaited
+      // first, then this) -- so there's no note row left to check
+      // ownership against. Ownership is instead enforced inside
+      // AiService.embeddingDelete via the vector's own stored
+      // accountId metadata, only deleting vectors that match.
       try {
-        const res = await AiService.embeddingDelete({ id })
+        const res = await AiService.embeddingDelete({ id, accountId: Number(ctx.id) })
         return res
       } catch (error) {
         return { ok: false, msg: error?.message }
@@ -93,7 +111,6 @@ export const aiRouter = router({
   completions: authProcedure
     .input(z.object({
       question: z.string(),
-      withTools: z.boolean().optional(),
       withOnline: z.boolean().optional(),
       withRAG: z.boolean().optional(),
       conversations: z.array(z.object({ role: z.string(), content: z.string() })),
@@ -108,17 +125,18 @@ export const aiRouter = router({
         if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
         }
-        const { question, conversations, withTools = false, systemPrompt } = input
+        const { question, conversations, systemPrompt } = input
         let _conversations = conversations as CoreMessage[]
         // CUSTOM-JOURNAL: RAG and web search are the whole point of this chat
-        // tab for a single-user journal -- always on, not client-toggleable.
-        // (withTools, which also grants note edit/delete/scheduling tools,
-        // stays opt-in.)
+        // tab -- always on, not client-toggleable. withTools (note edit/
+        // delete/scheduling tools) removed entirely per explicit request --
+        // hardcoded false here rather than accepted from input, so it can't
+        // be re-enabled by a stale client or a manually-crafted request.
         const { result: responseStream, notes } = await AiService.completions({
           question,
           conversations: _conversations,
           ctx,
-          withTools,
+          withTools: false,
           withOnline: true,
           withRAG: true,
           systemPrompt
@@ -313,6 +331,41 @@ export const aiRouter = router({
       };
     }),
 
+  // CUSTOM-JOURNAL: powers the admin RAG settings tab's "basic information"
+  // card -- vector/index stats direct from the vector store, plus which
+  // embedding model is currently configured to produce them. Superadmin
+  // only, alongside the RAG history log and metadata toggles it sits next
+  // to in the UI.
+  ragInfo: authProcedure
+    .use(superAdminAuthMiddleware)
+    .output(z.object({
+      dimension: z.number().nullable(),
+      count: z.number().nullable(),
+      metric: z.string().nullable(),
+      embeddingModelTitle: z.string().nullable(),
+    }))
+    .query(async () => {
+      const config = await AiModelFactory.globalConfig();
+      let embeddingModelTitle: string | null = null;
+      if (config.embeddingModelId) {
+        const model = await AiModelFactory.getAiModel(config.embeddingModelId);
+        embeddingModelTitle = model?.title ?? null;
+      }
+      try {
+        const { VectorStore } = await AiModelFactory.GetProvider();
+        const stats = await VectorStore.describeIndex({ indexName: 'blinko' });
+        return {
+          dimension: stats?.dimension ?? null,
+          count: stats?.count ?? null,
+          metric: stats?.metric ?? null,
+          embeddingModelTitle,
+        };
+      } catch (error) {
+        // No index yet (nothing ever embedded) -- not an error state.
+        return { dimension: null, count: null, metric: null, embeddingModelTitle };
+      }
+    }),
+
   tagAuditStart: authProcedure
     .input(z.object({
       force: z.boolean().optional(),
@@ -436,6 +489,10 @@ export const aiRouter = router({
       // CUSTOM-JOURNAL: powers the right-click "Info" panel's per-note AI
       // attempt/timing history.
       noteId: z.number().optional(),
+      // CUSTOM-JOURNAL: powers the admin RAG settings tab's history log
+      // (taskType: 'embedding'), reusing this same list rather than a
+      // dedicated endpoint.
+      taskType: z.string().optional(),
     }))
     .output(z.array(aiTaskLogSchema))
     .query(async ({ input, ctx }) => {
@@ -443,6 +500,7 @@ export const aiRouter = router({
       const where = {
         ...(isSuperAdmin && input.scope === 'all' ? {} : { accountId: Number(ctx.id) }),
         ...(input.noteId != null && { noteId: input.noteId }),
+        ...(input.taskType != null && { taskType: input.taskType }),
       };
       const rows = await prisma.aiTaskLog.findMany({
         where,

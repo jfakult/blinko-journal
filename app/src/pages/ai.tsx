@@ -44,21 +44,6 @@ const AIPage = observer(() => {
     };
   }, []);
 
-  const suggestionActions = [
-    {
-      prompt: t('ai-prompt-suggestion-mood')
-    },
-    {
-      prompt: t('ai-prompt-suggestion-find-person')
-    },
-    {
-      prompt: t('ai-prompt-suggestion-tag-untagged')
-    },
-    {
-      prompt: t('ai-prompt-suggestion-archive-summary')
-    }
-  ]
-
   // CUSTOM-JOURNAL: replaces the old fixed Recall/Search/Trends button row --
   // prompts now come from config.aiHintPrompts (one per line, editable in AI
   // Settings -> AI Hint Prompts without a redeploy -- was a hardcoded array
@@ -161,33 +146,6 @@ const AIPage = observer(() => {
                   variant='flat'
                 >
                   {prompt}
-                </Button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {RootStore.Get(AiStore).withTools.value && !aiStore.isChatting && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className='flex gap-2 mt-4 flex-col items-center'
-            >
-              {suggestionActions.map((action, index) => (
-                <Button
-                  size={isPc ? 'md' : 'sm'}
-                  onPress={() => {
-                    aiStore.newChatWithSuggestion(t(action.prompt))
-                  }}
-                  className='w-fit'
-                  key={index}
-                  radius='full'
-                  variant='flat'
-                >
-                  {t(action.prompt)}
                 </Button>
               ))}
             </motion.div>

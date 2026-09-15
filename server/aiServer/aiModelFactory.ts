@@ -27,15 +27,29 @@ import { aiModels } from '@shared/index';
 import { MastraVoice } from '@mastra/core/voice';
 
 export class AiModelFactory {
-  static async queryAndDeleteVectorById(targetId: number) {
+  static async queryAndDeleteVectorById(targetId: number, accountId?: number) {
     const { VectorStore } = await AiModelFactory.GetProvider();
     try {
-      const query = `
+      // CUSTOM-JOURNAL: accountId (when passed) is matched in the DELETE
+      // itself, not just the SELECT -- so a caller that only trusts the
+      // note's id (not necessarily its owner) can never delete/replace
+      // another account's vector by guessing/reusing a noteId. Used by the
+      // externally-reachable embeddingDelete mutation, where the note row
+      // may already be gone (deleted after the note itself) so ownership
+      // can't be re-checked against Postgres at that point.
+      const query = accountId != null ? `
           WITH target_record AS (
-            SELECT vector_id 
+            SELECT vector_id
             FROM 'blinko'
-            WHERE metadata->>'id' = ? 
-            LIMIT 1
+            WHERE metadata->>'id' = ? AND metadata->>'accountId' = ?
+          )
+          DELETE FROM 'blinko'
+          WHERE vector_id IN (SELECT vector_id FROM target_record)
+          RETURNING *;` : `
+          WITH target_record AS (
+            SELECT vector_id
+            FROM 'blinko'
+            WHERE metadata->>'id' = ?
           )
           DELETE FROM 'blinko'
           WHERE vector_id IN (SELECT vector_id FROM target_record)
@@ -43,7 +57,7 @@ export class AiModelFactory {
       //@ts-ignore
       const result = await VectorStore.turso.execute({
         sql: query,
-        args: [targetId],
+        args: accountId != null ? [targetId, accountId] : [targetId],
       });
 
       if (result.rows.length === 0) {
@@ -102,10 +116,24 @@ export class AiModelFactory {
       model: Embeddings,
     });
 
+    // CUSTOM-JOURNAL: filter by accountId directly in the vector search
+    // (not just the Postgres note fetch below) -- this fork now has
+    // multiple real accounts sharing one instance/one vector index, and
+    // without this, the nearest-neighbor search itself ran over every
+    // account's embedded notes combined, so another account's higher-
+    // scoring vectors could crowd this account's own relevant entries out
+    // of the shared topK budget entirely (a note that WOULD have matched
+    // never even reaching the Postgres filter below to be excluded). No
+    // note content ever leaked across accounts even before this (the
+    // Postgres fetch below was always accountId-scoped), but retrieval
+    // quality degraded as more accounts were added. Requires accountId to
+    // be present in each vector's metadata -- see embeddingUpsert/
+    // embeddingInsertAttachments.
     const result = await VectorStore.query({
       indexName: 'blinko',
       queryVector: embedding,
       topK: topK,
+      filter: { accountId },
     });
     let filteredResults = result.filter(({ score }) => score >= embeddingMinScore);
 

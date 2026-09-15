@@ -35,26 +35,6 @@ const cardIcons = [
     },
   },
   {
-    tooltip: 'add-tools-to-model',
-    icon: 'hugeicons:ai-chemistry-02',
-    size: 20,
-    containerSize: 30,
-    onClick: () => {
-      RootStore.Get(AiStore).withTools.save(!RootStore.Get(AiStore).withTools.value);
-    },
-    classNames: () => {
-      return RootStore.Get(AiStore).withTools.value
-        ? {
-          base: 'bg-primary hover:opacity-80 hover:bg-primary ',
-          icon: 'text-primary-foreground font-bold',
-        }
-        : {
-          base: 'bg-transparent text-foreground',
-          icon: 'text-foreground',
-        };
-    },
-  },
-  {
     tooltip: 'clear-current-content',
     icon: 'hugeicons:delete-01',
     size: 20,

@@ -435,6 +435,7 @@ const InfoDialogContent = observer(() => {
         <InfoRow label={i18n.t('created-at')} value={fmt(note?.createdAt)} />
         <InfoRow label={i18n.t('updated-at')} value={fmt(note?.updatedAt)} />
         <InfoRow label={i18n.t('ai-tagged-at')} value={fmt(note?.aiTaggedAt)} />
+        <InfoRow label={i18n.t('rag-indexed-at')} value={note?.embeddedAt ? fmt(note.embeddedAt) : i18n.t('not-indexed-yet')} />
         <InfoRow label={i18n.t('content-length')} value={String(note?.contentLength ?? note?.content?.length ?? 0)} />
         <InfoRow label={i18n.t('is-top')} value={note?.isTop ? i18n.t('yes') : i18n.t('no')} />
         <InfoRow label={i18n.t('is-archived')} value={note?.isArchived ? i18n.t('yes') : i18n.t('no')} />

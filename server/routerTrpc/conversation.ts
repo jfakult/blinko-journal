@@ -19,7 +19,14 @@ export const conversationRouter = router({
     .input(z.object({
       id: z.number()
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
+      // CUSTOM-JOURNAL: previously deleted by conversationId alone -- any
+      // authenticated user could wipe another account's conversation
+      // history just by guessing/enumerating an id. Verify ownership first.
+      const conversation = await prisma.conversation.findUnique({ where: { id: input.id }, select: { accountId: true } });
+      if (!conversation || conversation.accountId !== Number(ctx.id)) {
+        throw new Error('Conversation not found or not owned by you');
+      }
       await prisma.message.deleteMany({
         where: {
           conversationId: input.id
@@ -150,6 +157,15 @@ export const conversationRouter = router({
       id: z.number()
     }))
     .mutation(async ({ input, ctx }) => {
+      // CUSTOM-JOURNAL: ownership checked BEFORE the message wipe (not just
+      // relying on the conversation.delete below to roll the transaction
+      // back on a mismatch) -- clearer intent, and doesn't depend on
+      // transaction-rollback semantics to avoid touching another account's
+      // messages in the first place.
+      const conversation = await prisma.conversation.findUnique({ where: { id: input.id }, select: { accountId: true } });
+      if (!conversation || conversation.accountId !== Number(ctx.id)) {
+        throw new Error('Conversation not found or not owned by you');
+      }
       return await prisma.$transaction(async (prisma) => {
         await prisma.message.deleteMany({
           where: {

@@ -101,6 +101,15 @@ export const ZConfigKey = z.union([
   z.literal('embeddingTopK'),
   z.literal('embeddingScore'),
   z.literal('excludeEmbeddingTagId'),
+  // CUSTOM-JOURNAL: which per-note metadata gets prepended to the text
+  // actually embedded into the RAG vector index (see
+  // AiService.embedNoteWithMetadata) -- admin-level, since it's a
+  // journal-wide retrieval-quality/behavior decision, not a personal
+  // preference. All default off (unset), preserving today's "just the raw
+  // content" embedding behavior until explicitly opted into.
+  z.literal('ragIncludeDates'),
+  z.literal('ragIncludeMood'),
+  z.literal('ragIncludeTags'),
   // CUSTOM-JOURNAL: newline-separated list of starter prompts shown (3
   // picked at random) on the AI tab when not chatting -- was a hardcoded
   // array of i18n keys in app/src/pages/ai.tsx, moved here so the user can
@@ -203,6 +212,9 @@ export const ZConfigSchema = z.object({
   embeddingTopK: z.number().nullable().optional(),
   embeddingScore: z.number().nullable().optional(),
   excludeEmbeddingTagId: z.number().nullable().optional(),
+  ragIncludeDates: z.boolean().optional(),
+  ragIncludeMood: z.boolean().optional(),
+  ragIncludeTags: z.boolean().optional(),
   aiHintPrompts: z.string().nullable().optional(),
   rerankTopK: z.number().nullable().optional(),
   rerankScore: z.number().nullable().optional(),

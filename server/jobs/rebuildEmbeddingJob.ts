@@ -376,7 +376,8 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
           updatedAt: note.updatedAt,
           id: note.id,
           content: note.content,
-          type: 'update' as const
+          type: 'update' as const,
+          accountId: note.accountId
         });
 
         if (ok) return { success: true };
@@ -398,7 +399,8 @@ export class RebuildEmbeddingJob extends BaseScheduleJob {
         const { ok, error } = await AiService.embeddingInsertAttachments({
           id: note.id,
           updatedAt: note.updatedAt,
-          filePath: attachment?.path
+          filePath: attachment?.path,
+          accountId: note.accountId
         });
 
         if (ok) return { success: true };

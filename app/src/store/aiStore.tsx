@@ -65,7 +65,6 @@ export class AiStore implements Store {
   isChatting = false;
   isAnswering = false;
   input = '';
-  withTools = new StorageState({ key: 'withTools', value: false, default: false });
   referencesNotes: BlinkoItem[] = [];
   currentMessageResult: currentMessageResult = {
     id: 0,
@@ -129,7 +128,6 @@ export class AiStore implements Store {
           {
             question: userQuestion,
             conversations: filteredChatConversation,
-            withTools: this.withTools.value ?? false,
           },
           { signal: this.aiChatabortController.signal },
         );

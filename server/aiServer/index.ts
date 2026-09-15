@@ -124,7 +124,7 @@ export class AiService {
     await VectorStore.truncateIndex({ indexName: 'blinko' });
   }
 
-  static async embeddingUpsert({ id, content, type, createTime, updatedAt }: { id: number; content: string; type: 'update' | 'insert'; createTime: Date; updatedAt?: Date }) {
+  static async embeddingUpsert({ id, content, type, createTime, updatedAt, accountId }: { id: number; content: string; type: 'update' | 'insert'; createTime: Date; updatedAt?: Date; accountId: number }) {
     try {
       const { VectorStore, Embeddings } = await AiModelFactory.GetProvider();
       if (!Embeddings) {
@@ -147,7 +147,7 @@ export class AiService {
 
       const chunks = await MDocument.fromMarkdown(content).chunk();
       if (type == 'update') {
-        AiModelFactory.queryAndDeleteVectorById(id);
+        AiModelFactory.queryAndDeleteVectorById(id, accountId);
       }
 
       // CUSTOM-JOURNAL: previously appended raw "Create At: <iso> Update At:
@@ -167,7 +167,10 @@ export class AiService {
       await VectorStore.upsert({
         indexName: 'blinko',
         vectors: embeddings,
-        metadata: chunks?.map((chunk) => ({ text: chunk.text, id, noteId: id, createTime, updatedAt })),
+        // CUSTOM-JOURNAL: accountId stored per-vector so queryVector can
+        // filter the nearest-neighbor search itself, not just the Postgres
+        // fetch afterward -- see queryVector's own comment.
+        metadata: chunks?.map((chunk) => ({ text: chunk.text, id, noteId: id, accountId, createTime, updatedAt })),
       });
 
       try {
@@ -179,6 +182,7 @@ export class AiService {
               ...(note?.metadata || {}),
               isIndexed: true,
             },
+            embeddedAt: new Date(),
             updatedAt,
           },
         });
@@ -194,7 +198,7 @@ export class AiService {
   }
 
   //api/file/123.pdf
-  static async embeddingInsertAttachments({ id, updatedAt, filePath }: { id: number; updatedAt?: Date; filePath: string }) {
+  static async embeddingInsertAttachments({ id, updatedAt, filePath, accountId }: { id: number; updatedAt?: Date; filePath: string; accountId: number }) {
     try {
 
       const fileResult = await FileService.getFile(filePath);
@@ -227,7 +231,7 @@ export class AiService {
       await VectorStore.upsert({
         indexName: 'blinko',
         vectors: embeddings,
-        metadata: chunks?.map((chunk) => ({ text: chunk.text, id, noteId: id, isAttachment: true, updatedAt })),
+        metadata: chunks?.map((chunk) => ({ text: chunk.text, id, noteId: id, accountId, isAttachment: true, updatedAt })),
       });
 
       try {
@@ -244,6 +248,7 @@ export class AiService {
               isIndexed: true,
               isAttachmentsIndexed: true,
             },
+            embeddedAt: new Date(),
             updatedAt,
           },
         });
@@ -256,9 +261,71 @@ export class AiService {
     }
   }
 
-  static async embeddingDelete({ id }: { id: number }) {
-    AiModelFactory.queryAndDeleteVectorById(id);
+  static async embeddingDelete({ id, accountId }: { id: number; accountId?: number }) {
+    await AiModelFactory.queryAndDeleteVectorById(id, accountId);
     return { ok: true };
+  }
+
+  // CUSTOM-JOURNAL: the single place a note's content is (re-)embedded into
+  // RAG after AI tagging/mood scoring -- called once at the END of
+  // postProcessNote/reanalyzeNote/tagAuditJob's per-note tag+mood work (not
+  // from inside appendTagsIfUnchanged anymore, which used to re-embed
+  // eagerly the moment tags were appended, before mood scoring even ran),
+  // and directly from note.ts on a plain edit or when post-processing is
+  // off (nothing else will trigger it in that case). Optionally prepends
+  // admin-configured metadata (dates/mood/tags -- see ragInclude* config)
+  // to the text actually embedded, so RAG retrieval can match on "what mood
+  // was I in" or "entries tagged #travel" style questions, not just literal
+  // content. Logs to aiTaskLog (taskType 'embedding') and stamps
+  // notes.embeddedAt so both the admin RAG history log and the per-note
+  // "Info" panel can show whether/when a note is actually indexed.
+  static async embedNoteWithMetadata({ noteId, accountId }: { noteId: number; accountId: number }): Promise<void> {
+    const config = await AiModelFactory.globalConfig();
+    if (!config.embeddingModelId) return;
+
+    const note = await prisma.notes.findUnique({
+      where: { id: noteId },
+      select: { content: true, createdAt: true, updatedAt: true, moodScores: true, tags: { include: { tag: true } } },
+    });
+    if (!note) return;
+
+    const taskLogId = await logAiTaskStart({ accountId, taskType: 'embedding', noteId, message: 'Embedding note into RAG index' });
+    try {
+      const prefixLines: string[] = [];
+      if (config.ragIncludeDates) {
+        prefixLines.push(`Date: ${dayjs(note.createdAt).format('YYYY-MM-DD')}`);
+      }
+      if (config.ragIncludeTags && note.tags.length > 0) {
+        prefixLines.push(`Tags: ${note.tags.map((t) => `#${t.tag.name}`).join(' ')}`);
+      }
+      if (config.ragIncludeMood && note.moodScores && typeof note.moodScores === 'object') {
+        const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } });
+        const moodLines = axes
+          .map((axis) => {
+            const score = (note.moodScores as Record<string, unknown>)[axis.positiveLabel];
+            return typeof score === 'number' ? `${axis.positiveLabel}: ${score}/100` : null;
+          })
+          .filter((line): line is string => line != null);
+        if (moodLines.length > 0) prefixLines.push(`Mood: ${moodLines.join(', ')}`);
+      }
+      const textToEmbed = prefixLines.length > 0 ? `${prefixLines.join('\n')}\n\n${note.content}` : note.content;
+
+      const result = await AiService.embeddingUpsert({
+        id: noteId,
+        content: textToEmbed,
+        type: 'update',
+        createTime: note.createdAt,
+        updatedAt: note.updatedAt,
+        accountId,
+      });
+      if (!result.ok) {
+        await logAiTaskFinish(taskLogId, 'error', result.error || result.msg || 'embedding failed');
+        return;
+      }
+      await logAiTaskFinish(taskLogId, 'success', prefixLines.length > 0 ? `Embedded with metadata: ${prefixLines.join(' | ')}` : 'Embedded');
+    } catch (error: any) {
+      await logAiTaskFinish(taskLogId, 'error', error?.message || String(error));
+    }
   }
 
   static async *rebuildEmbeddingIndex({ force = false }: { force?: boolean }): AsyncGenerator<ProgressResult & { progress?: { current: number; total: number } }, void, unknown> {
@@ -782,17 +849,12 @@ export class AiService {
     if (relationCount === 0) {
       console.warn(`[AI tagging] note ${noteId}: appended tags "${tags.join(' ')}" to content but tagsToNote has 0 rows for this note`);
     }
-    try {
-      const config = await AiModelFactory.globalConfig();
-      if (config.embeddingModelId) {
-        const note = await prisma.notes.findUnique({ where: { id: noteId }, select: { createdAt: true } });
-        if (note) {
-          AiService.embeddingUpsert({ id: noteId, content: newContent, type: 'update', createTime: note.createdAt, updatedAt: expectedUpdatedAt });
-        }
-      }
-    } catch (error) {
-      console.error('Error re-embedding after tag append:', error);
-    }
+    // CUSTOM-JOURNAL: no longer re-embeds here -- this used to fire the
+    // moment tags were appended, before mood scoring even ran, so RAG saw a
+    // half-finished pass (tags but not mood). Every caller of this function
+    // (postProcessNote/reanalyzeNote/tagAuditJob) now calls
+    // AiService.embedNoteWithMetadata itself exactly once, after BOTH tag
+    // and mood work for that note are done.
     return true;
   }
 
@@ -891,6 +953,9 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         });
 
         await logAiTaskFinish(taskLogId, 'success', 'Custom processing completed');
+        if (config.embeddingModelId) {
+          AiService.embedNoteWithMetadata({ noteId, accountId: note.accountId! }).catch((err) => console.error('Error embedding note after post-processing:', err));
+        }
         return { success: true, message: 'Custom processing completed' };
       }
 
@@ -1017,6 +1082,13 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       }
 
       await logAiTaskFinish(taskLogId, 'success', `mode: ${processingMode}`);
+      // CUSTOM-JOURNAL: RAG embedding deliberately happens LAST, after
+      // tags+mood (and any content-editing modes) above have finished --
+      // see embedNoteWithMetadata's own comment for why this replaced the
+      // old eager re-embed inside appendTagsIfUnchanged.
+      if (config.embeddingModelId) {
+        AiService.embedNoteWithMetadata({ noteId, accountId: note.accountId! }).catch((err) => console.error('Error embedding note after post-processing:', err));
+      }
       return { success: true, message: 'Note processed successfully' };
     } catch (error) {
       console.error('Error in post-processing note:', error);
@@ -1114,6 +1186,12 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       });
 
       await logAiTaskFinish(taskLogId, 'success', 'Manual re-run AI analysis completed');
+      // CUSTOM-JOURNAL: re-embed last, after transcription/tags/mood above
+      // -- same reasoning as postProcessNote's own final embed call.
+      const config = await AiModelFactory.globalConfig();
+      if (config.embeddingModelId) {
+        AiService.embedNoteWithMetadata({ noteId, accountId: note.accountId! }).catch((err) => console.error('Error embedding note after reanalyze:', err));
+      }
       return { success: true };
     } catch (error: any) {
       await logAiTaskFinish(taskLogId, 'error', error?.message || String(error));

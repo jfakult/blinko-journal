@@ -382,6 +382,14 @@ export class TagAuditJob extends BaseScheduleJob {
                   ...(Object.keys(migratedScores).length > 0 && { moodScores: migratedScores }),
                 },
               });
+              // Re-embed if RAG is set up to include mood in the embedded
+              // text -- the score above just changed. No-op cheaply
+              // otherwise (embedNoteWithMetadata itself no-ops without an
+              // embeddingModelId, but the config check here avoids the
+              // extra note/tags read for the common case where it's off).
+              if (config.embeddingModelId && config.ragIncludeMood) {
+                await AiService.embedNoteWithMetadata({ noteId: note.id, accountId: note.accountId! }).catch((err) => console.error('Error embedding note during mood migration:', err));
+              }
               results.push({ type: 'success', content: `[mood-migrate] ${note.content.slice(0, 30)}`, timestamp: new Date().toISOString() });
               processedIds.add(note.id);
               current++;
@@ -445,6 +453,13 @@ export class TagAuditJob extends BaseScheduleJob {
                   ...(Object.keys(moodScores).length > 0 && { moodScores }),
                 },
               });
+
+              // CUSTOM-JOURNAL: embed last, after tags+mood above --
+              // same reasoning as postProcessNote/reanalyzeNote's own
+              // final embed call.
+              if (config.embeddingModelId) {
+                await AiService.embedNoteWithMetadata({ noteId: note.id, accountId: note.accountId! }).catch((err) => console.error('Error embedding note during tag audit:', err));
+              }
 
               results.push({ type: 'success', content: noteContent.slice(0, 30), timestamp: new Date().toISOString() });
               processedIds.add(note.id);

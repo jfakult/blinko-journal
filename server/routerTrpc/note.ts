@@ -1054,9 +1054,13 @@ export const noteRouter = router({
         }
 
         if (config?.embeddingModelId) {
-          AiService.embeddingUpsert({ id: note.id, content: note.content, type: 'update', createTime: note.createdAt!, updatedAt: note.updatedAt });
+          // CUSTOM-JOURNAL: a plain edit doesn't retrigger AI tagging (see
+          // comment below), so there's no post-processing pass to wait on
+          // here -- re-embed immediately, picking up whatever tags/mood the
+          // note currently has plus the just-edited content.
+          AiService.embedNoteWithMetadata({ noteId: note.id, accountId: Number(ctx.id) });
           for (const attachment of attachments) {
-            AiService.embeddingInsertAttachments({ id: note.id, updatedAt: note.updatedAt, filePath: attachment.path });
+            AiService.embeddingInsertAttachments({ id: note.id, updatedAt: note.updatedAt, filePath: attachment.path, accountId: Number(ctx.id) });
           }
         }
 
@@ -1098,9 +1102,14 @@ export const noteRouter = router({
           }
 
           if (config?.embeddingModelId) {
-            AiService.embeddingUpsert({ id: note.id, content: note.content, type: 'insert', createTime: note.createdAt!, updatedAt: note.updatedAt });
+            // CUSTOM-JOURNAL: content embedding is NOT fired here anymore --
+            // deferred to runPostProcessing below (after tagging/mood, when
+            // post-processing is on) or fired immediately there (when it's
+            // off, since nothing else would trigger it). Attachments are
+            // unrelated to that content/metadata pipeline, so still embed
+            // those immediately as before.
             for (const attachment of attachments) {
-              AiService.embeddingInsertAttachments({ id: note.id, updatedAt: note.updatedAt, filePath: attachment.path });
+              AiService.embeddingInsertAttachments({ id: note.id, updatedAt: note.updatedAt, filePath: attachment.path, accountId: Number(ctx.id) });
             }
           }
 
@@ -1116,6 +1125,13 @@ export const noteRouter = router({
             if (config?.isUseAiPostProcessing) {
               AiService.postProcessNote({ noteId: note.id, ctx }).catch((err) => {
                 console.error('Error in post-processing note:', err);
+              });
+            } else if (config?.embeddingModelId) {
+              // Nothing else will trigger embedding in this case -- RAG
+              // only "waits for post-processing" when post-processing is
+              // actually going to run.
+              AiService.embedNoteWithMetadata({ noteId: note.id, accountId: Number(ctx.id) }).catch((err) => {
+                console.error('Error embedding note:', err);
               });
             }
           };
@@ -1797,7 +1813,7 @@ export async function deleteNotes(ids: number[], ctx: Context) {
         });
       }
 
-      AiModelFactory.queryAndDeleteVectorById(note.id);
+      AiModelFactory.queryAndDeleteVectorById(note.id, Number(ctx.id));
     }
   };
 

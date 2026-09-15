@@ -22,6 +22,7 @@ import { AiHintPromptsSection } from './AiHintPromptsSection';
 import ModelDialogContent from './ModelDialogContent';
 import { McpServersSection } from './McpServersSection';
 import { AiFeaturesToggleSection } from './AiFeaturesToggleSection';
+import { RagSettingsSection } from './RagSettingsSection';
 import { AiSettingStore } from '@/store/aiSettingStore';
 import { Copy } from '../../Common/Copy';
 import { MarkdownRender } from '../../Common/MarkdownRender';
@@ -100,6 +101,8 @@ export default observer(function AiSetting() {
           <DefaultModelsSection />
 
           <EmbeddingSettingsSection />
+
+          {user.isSuperAdmin && <RagSettingsSection />}
 
           <GlobalPromptSection />
 

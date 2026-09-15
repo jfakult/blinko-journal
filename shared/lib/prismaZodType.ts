@@ -84,6 +84,7 @@ export const notesSchema = z.object({
   contentLength: z.number().int().nullable().optional(),
   aiTaggedAt: z.date().nullable().optional(),
   moodScores: z.any().nullable().optional(),
+  embeddedAt: z.date().nullable().optional(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 })
