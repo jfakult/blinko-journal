@@ -65,6 +65,17 @@ export const ZUserPerferConfigKey = z.union([
   z.literal('soundEnabled'),
   z.literal('pageBackground'),
   z.literal('entryTheme'),
+  // CUSTOM-JOURNAL: per the explicit product decision that AI provider/model
+  // selection stays admin-managed ("the admin just determines the model")
+  // but WHETHER to use AI is up to each individual user -- these 4 toggles
+  // (the "AI Features" cascade in AI Settings) moved here from ZConfigKey,
+  // where they (and the pre-existing isUseAiPostProcessing) were
+  // superadmin-only, so a non-admin got "You are not allowed to update
+  // global config" just trying to switch AI on for themselves.
+  z.literal('isEnableAiFeatures'),
+  z.literal('isUseAiPostProcessing'),
+  z.literal('isUseAiTranscription'),
+  z.literal('isShowAiChatTab'),
 ]);
 
 export const ZConfigKey = z.union([
@@ -114,15 +125,9 @@ export const ZConfigKey = z.union([
   z.literal('tavilyApiKey'),
   z.literal('tavilyMaxResult'),
   z.literal('searxngUrl'),
-  z.literal('isUseAiPostProcessing'),
-  // CUSTOM-JOURNAL: the 4 cascading "AI Features" toggles in AI Settings.
-  // Registered at the same global/superadmin tier as isUseAiPostProcessing
-  // and every other AI setting (mainModelId, voiceModelId, etc) -- all
-  // resolved via AiModelFactory.globalConfig() -> getGlobalConfig({useAdmin:
-  // true}), i.e. AI config in this fork is journal-wide, not per-account.
-  z.literal('isEnableAiFeatures'),
-  z.literal('isUseAiTranscription'),
-  z.literal('isShowAiChatTab'),
+  // CUSTOM-JOURNAL: isEnableAiFeatures/isUseAiPostProcessing/
+  // isUseAiTranscription/isShowAiChatTab moved to ZUserPerferConfigKey
+  // above (per-user, not global) -- see that union's own comment.
   z.literal('aiCommentPrompt'),
   z.literal('aiTagsPrompt'),
   z.literal('aiPostProcessingMode'),

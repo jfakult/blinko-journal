@@ -218,6 +218,35 @@ export class TagAuditJob extends BaseScheduleJob {
         return skippedProgress;
       }
 
+      // CUSTOM-JOURNAL: the checks above are the SITE-WIDE default (a fast
+      // pre-filter: skip the whole run/query if disabled admin-wide) -- but
+      // this job spans every account, and each user has their own personal
+      // override of these same 4 toggles. Resolved+cached per account
+      // (rather than once globally) so e.g. one user opting out of AI
+      // doesn't get their notes backfilled anyway just because the site
+      // default (or another user's preference) has it on, and vice versa.
+      const accountToggleCache = new Map<number, { postProcessingEnabled: boolean; transcriptionEnabled: boolean }>();
+      const getAccountToggles = async (accountId: number | null | undefined) => {
+        if (accountId == null) return { postProcessingEnabled, transcriptionEnabled };
+        if (!accountToggleCache.has(accountId)) {
+          const acctConfig = await AiModelFactory.resolveEffectiveConfig(accountId);
+          const acctEnabled = await AiModelFactory.assertAiEnabled(acctConfig);
+          accountToggleCache.set(accountId, {
+            postProcessingEnabled: acctEnabled && !!acctConfig.isUseAiPostProcessing,
+            transcriptionEnabled: acctEnabled && acctConfig.isUseAiTranscription !== false,
+          });
+        }
+        return accountToggleCache.get(accountId)!;
+      };
+      const filterByAccountToggle = async <T extends { accountId: number | null }>(notes: T[], toggleKey: 'postProcessingEnabled' | 'transcriptionEnabled'): Promise<T[]> => {
+        const kept: T[] = [];
+        for (const note of notes) {
+          const toggles = await getAccountToggles(note.accountId);
+          if (toggles[toggleKey]) kept.push(note);
+        }
+        return kept;
+      };
+
       this.forceStopFlag = false;
       const processedIds = new Set<number>(currentProgress.processedNoteIds || []);
       const failedIds = new Set<number>(currentProgress.failedNoteIds || []);
@@ -227,10 +256,10 @@ export class TagAuditJob extends BaseScheduleJob {
       // moodMigration) are all tags+mood work -- gated on postProcessingEnabled,
       // same as postProcessNote's own gate. transcriptionGapCandidates further
       // down is gated independently on transcriptionEnabled instead.
-      const untaggedNotes = postProcessingEnabled ? await prisma.notes.findMany({
+      const untaggedNotes = postProcessingEnabled ? await filterByAccountToggle(await prisma.notes.findMany({
         where: { aiTaggedAt: null, isRecycle: false, id: { notIn: Array.from(processedIds) } },
         orderBy: { id: 'asc' },
-      }) : [];
+      }), 'postProcessingEnabled') : [];
 
       // CUSTOM-JOURNAL: repair pass -- notes marked aiTaggedAt (so the query
       // above skips them entirely) but with zero real tag relations. Root
@@ -247,10 +276,10 @@ export class TagAuditJob extends BaseScheduleJob {
       // sitting in the content -- no AI call, so it can't invent tags
       // different from what's visibly there, and no content/aiTaggedAt
       // mutation needed since both are already correct.
-      const repairCandidates = postProcessingEnabled ? (await prisma.notes.findMany({
+      const repairCandidates = postProcessingEnabled ? await filterByAccountToggle((await prisma.notes.findMany({
         where: { aiTaggedAt: { not: null }, isRecycle: false, tags: { none: {} }, id: { notIn: Array.from(processedIds) } },
         orderBy: { id: 'asc' },
-      })).filter((n) => extractHashtags(n.content).length > 0) : [];
+      })).filter((n) => extractHashtags(n.content).length > 0), 'postProcessingEnabled') : [];
       const repairOnlyIds = new Set(repairCandidates.map((n) => n.id));
 
       // CUSTOM-JOURNAL: one-time migration pass -- notes.moodScores used to
@@ -264,13 +293,13 @@ export class TagAuditJob extends BaseScheduleJob {
       // the current name-keyed format. Tags are untouched; this is scoped
       // to mood only. Excludes notes already in the other two candidate
       // sets above, which already rerun mood as part of their own pass.
-      const moodMigrationCandidates = postProcessingEnabled ? (await prisma.notes.findMany({
+      const moodMigrationCandidates = postProcessingEnabled ? await filterByAccountToggle((await prisma.notes.findMany({
         where: {
           isRecycle: false,
           id: { notIn: Array.from(new Set([...processedIds, ...untaggedNotes.map((n) => n.id), ...repairCandidates.map((n) => n.id)])) },
         },
         orderBy: { id: 'asc' },
-      })).filter((n) => n.moodScores && typeof n.moodScores === 'object' && Object.keys(n.moodScores as object).some((k) => /^\d+$/.test(k))) : [];
+      })).filter((n) => n.moodScores && typeof n.moodScores === 'object' && Object.keys(n.moodScores as object).some((k) => /^\d+$/.test(k))), 'postProcessingEnabled') : [];
       const moodMigrationOnlyIds = new Set(moodMigrationCandidates.map((n) => n.id));
 
       // CUSTOM-JOURNAL: notes with an audio attachment already marked
@@ -287,7 +316,7 @@ export class TagAuditJob extends BaseScheduleJob {
       // force even for attachments that DO already have a correct block,
       // since force only re-fetches+replaces, never duplicates.
       const excludeFromGapCheck = Array.from(new Set([...processedIds, ...untaggedNotes.map((n) => n.id), ...repairCandidates.map((n) => n.id), ...moodMigrationCandidates.map((n) => n.id)]));
-      const transcriptionGapCandidates = transcriptionEnabled ? (await prisma.notes.findMany({
+      const transcriptionGapCandidates = transcriptionEnabled ? await filterByAccountToggle((await prisma.notes.findMany({
         where: {
           isRecycle: false,
           id: { notIn: excludeFromGapCheck },
@@ -297,7 +326,7 @@ export class TagAuditJob extends BaseScheduleJob {
         orderBy: { id: 'asc' },
       })).filter((n) =>
         n.attachments.some((a) => a.transcribedAt != null && AiService.isAudio(a.name || a.path) && !AiService.hasTranscriptionBlock(n.content, a.id))
-      ) : [];
+      ), 'transcriptionEnabled') : [];
       const transcriptionGapOnlyIds = new Set(transcriptionGapCandidates.map((n) => n.id));
 
       const notes = [...untaggedNotes, ...repairCandidates, ...moodMigrationCandidates, ...transcriptionGapCandidates];

@@ -228,6 +228,32 @@ export class AiModelFactory {
     return await getGlobalConfig({ useAdmin: true });
   }
 
+  // CUSTOM-JOURNAL: globalConfig() above (useAdmin:true) sees every setting
+  // -- models, prompts, provider secrets -- but resolves NO specific
+  // account, so the 4 per-user "AI Features" toggles (isEnableAiFeatures,
+  // isUseAiPostProcessing, isUseAiTranscription, isShowAiChatTab) always
+  // come back as the site-wide default there, never a specific user's own
+  // override. This merges the admin's full config (models/prompts/secrets)
+  // with the ACTING user's own toggle preferences, so e.g. one user turning
+  // AI off for themselves actually stops their own notes' background
+  // processing, while everything else (which model, what prompt) still
+  // comes from the shared admin configuration ("the admin just determines
+  // the model, but AI usage is up to the user"). Falls back to the plain
+  // admin config when no accountId is available (e.g. a context-free
+  // background job with no single acting user).
+  static async resolveEffectiveConfig(accountId?: number) {
+    const adminConfig = await AiModelFactory.globalConfig();
+    if (!accountId) return adminConfig;
+    const userConfig = await getGlobalConfig({ ctx: { id: String(accountId) } as any });
+    return {
+      ...adminConfig,
+      isEnableAiFeatures: userConfig.isEnableAiFeatures,
+      isUseAiPostProcessing: userConfig.isUseAiPostProcessing,
+      isUseAiTranscription: userConfig.isUseAiTranscription,
+      isShowAiChatTab: userConfig.isShowAiChatTab,
+    };
+  }
+
   // CUSTOM-JOURNAL: single choke point for the master AI killswitch
   // (isEnableAiFeatures, one of the 4 cascading "AI Features" toggles) --
   // every AI action entry point (post-processing, transcription, reanalyze,

@@ -802,8 +802,10 @@ export class AiService {
       const runtimeContext = new RuntimeContext();
       runtimeContext.set('accountId', ctx.id);
 
-      // Get the configuration
-      const config = await AiModelFactory.globalConfig();
+      // Get the configuration -- resolved for this specific note's owner,
+      // so their own AI Features/Post-Processing toggle preference (not
+      // just the site-wide default) is what's actually enforced here.
+      const config = await AiModelFactory.resolveEffectiveConfig(Number(ctx.id));
 
       // CUSTOM-JOURNAL: master AI killswitch, checked before the
       // post-processing-specific toggle below.
@@ -1047,7 +1049,7 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
     // menu item itself is still hidden when post-processing is off (see
     // BlinkoRightClickMenu) -- that's a UI-discoverability choice, not a
     // reason to block an already-triggered explicit request here too.
-    if (!(await AiModelFactory.assertAiEnabled())) {
+    if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
       throw new Error('AI features are disabled');
     }
 
@@ -1343,7 +1345,9 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
   //   either way -- the non-forced/automatic paths stay silent on purpose,
   //   they're not something a person is watching for a result.
   static async transcribeAndAppend({ noteId, accountId, force = false }: { noteId: number; accountId: number; force?: boolean }): Promise<{ transcribedAny: boolean; message?: string }> {
-    const config = await AiModelFactory.globalConfig();
+    // Resolved for this note's owning account, so their own toggle
+    // preference (not just the site-wide default) is enforced.
+    const config = await AiModelFactory.resolveEffectiveConfig(accountId);
     // CUSTOM-JOURNAL: gates every caller (note create/update, reanalyzeNote,
     // the manual "Transcribe" menu button) from this single entry point --
     // the master AI killswitch and the "AI Audio Transcription" toggle

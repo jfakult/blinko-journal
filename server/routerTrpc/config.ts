@@ -6,10 +6,24 @@ import { configSchema } from '@shared/lib/prismaZodType';
 import { Context } from '../context';
 import { reinitializeOAuthStrategies } from '../routerExpress/auth/config';
 
+// CUSTOM-JOURNAL: model IDs are just numeric FK references into aiModels
+// (the provider's actual apiKey/baseURL live in the separate aiProviders
+// table, never exposed via config.list at all) -- not secrets themselves.
+// Every authenticated user's own UI needs to see these to correctly gate
+// AI-dependent features (the right-click menu's Transcribe/Reanalyze/
+// ViewSentiments items, DefaultModelsSection, etc.) even though only a
+// superadmin can change WHICH model they point to ("the admin just
+// determines the model, but AI usage should be up to the user").
+const AUTHENTICATED_READABLE_GLOBAL_KEYS = new Set([
+  'mainModelId', 'postProcessingModelId', 'embeddingModelId', 'voiceModelId',
+  'rerankModelId', 'imageModelId', 'audioModelId',
+]);
+
 export const getGlobalConfig = async ({ ctx, useAdmin = false }: { ctx?: Context, useAdmin?: boolean }) => {
   const userId = Number(ctx?.id ?? 0);
   const configs = await prisma.config.findMany();
   const isSuperAdmin = useAdmin ? true : ctx?.role === 'superadmin';
+  const userOverrideKeys = new Set<string>();
 
   const globalConfig = configs.reduce((acc, item) => {
     const config = item.config as { type: string, value: any };
@@ -35,11 +49,27 @@ export const getGlobalConfig = async ({ ctx, useAdmin = false }: { ctx?: Context
         return acc;
       }
     }
-    if (!isSuperAdmin && !item.userId) {
+    if (!isSuperAdmin && !item.userId && !(userId && AUTHENTICATED_READABLE_GLOBAL_KEYS.has(item.key))) {
       return acc;
     }
     const isUserPreferConfig = ZUserPerferConfigKey.safeParse(item.key).success;
-    if ((isUserPreferConfig && item.userId === userId) || (!isUserPreferConfig)) {
+    if (!isUserPreferConfig) {
+      acc[item.key] = config.value;
+    } else if (item.userId === userId) {
+      // This user's own override -- always wins, regardless of iteration order.
+      acc[item.key] = config.value;
+      userOverrideKeys.add(item.key);
+    } else if (item.userId == null && !userOverrideKeys.has(item.key)) {
+      // CUSTOM-JOURNAL: seed.ts's setConfigIfMissing always writes a
+      // userId:null "factory default" row, even for per-user keys (e.g.
+      // isOrderByCreateTime, isEnableAiFeatures) -- without this fallback,
+      // any user who has never personally touched a preference (no row of
+      // their own yet) saw it read as undefined instead of that seeded
+      // default, silently behaving as "off"/unset until they happened to
+      // toggle it once. Only applied if this user hasn't set their own
+      // value (checked via userOverrideKeys, not just "seen before in acc",
+      // since iteration order between a user's row and the global row isn't
+      // guaranteed).
       acc[item.key] = config.value;
     }
     return acc;

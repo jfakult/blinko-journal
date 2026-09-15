@@ -105,7 +105,7 @@ export const aiRouter = router({
         // backend, gated here alongside the other AI-chat-adjacent
         // procedures below (writing, autoEmoji, AIComment,
         // summarizeConversationTitle).
-        if (!(await AiModelFactory.assertAiEnabled())) {
+        if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
         }
         const { question, conversations, withTools = false, systemPrompt } = input
@@ -173,8 +173,8 @@ export const aiRouter = router({
       conversations: z.array(z.object({ role: z.string(), content: z.string() })),
       conversationId: z.number()
     }))
-    .mutation(async function ({ input }) {
-      if (!(await AiModelFactory.assertAiEnabled())) {
+    .mutation(async function ({ input, ctx }) {
+      if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
       }
       const { conversations, conversationId } = input
@@ -200,8 +200,8 @@ export const aiRouter = router({
       type: z.enum(['expand', 'polish', 'custom']).optional(),
       content: z.string().optional()
     }))
-    .mutation(async function* ({ input }) {
-      if (!(await AiModelFactory.assertAiEnabled())) {
+    .mutation(async function* ({ input, ctx }) {
+      if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
       }
       const { question, type = 'custom', content } = input
@@ -250,8 +250,8 @@ export const aiRouter = router({
     .input(z.object({
       content: z.string()
     }))
-    .mutation(async function ({ input }) {
-      if (!(await AiModelFactory.assertAiEnabled())) {
+    .mutation(async function ({ input, ctx }) {
+      if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
       }
       const { content } = input
@@ -265,8 +265,8 @@ export const aiRouter = router({
       content: z.string(),
       noteId: z.number()
     }))
-    .mutation(async function ({ input }) {
-      if (!(await AiModelFactory.assertAiEnabled())) {
+    .mutation(async function ({ input, ctx }) {
+      if (!(await AiModelFactory.assertAiEnabled(await AiModelFactory.resolveEffectiveConfig(Number(ctx.id))))) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'AI features are disabled' });
       }
       return await AiService.AIComment(input)
