@@ -53,6 +53,20 @@ export class EditorStore {
   }
   lastSelection: Selection | null = null
   vditor: Vditor | null = null
+  // CUSTOM-JOURNAL: canSend (below) needs to react to every keystroke, but
+  // it reads the live value straight off the Vditor instance
+  // (this.vditor.getValue()) rather than an observable field -- MobX has no
+  // way to know a plain method call like that changed, so nothing
+  // re-evaluated/re-rendered SendButton on typing alone (only this.files
+  // changing, an actual observable, happened to trigger a re-render, which
+  // is why attaching/removing a file would "fix" the button but typing text
+  // by itself left it stuck showing whatever canSend was at last render --
+  // e.g. permanently disabled for a brand-new, all-text entry). Bumped
+  // wherever vditor's content changes (the input: callback in useEditor.ts
+  // for real typing, plus every setValue/insertValue call site in this
+  // file) purely to give canSend something observable to depend on -- the
+  // actual text is still always read fresh from vditor itself.
+  contentVersion: number = 0
   onChange: ((markdown: string) => void) | null = null
   mode: 'edit' | 'create' | 'comment' = 'edit'
   references: number[] = []
@@ -126,6 +140,7 @@ export class EditorStore {
       const local = this.blinko.editContentStorage.list?.find(i => Number(i.id) == Number(this.blinko.curSelectedNote!.id))
       if (local) {
         this.vditor?.setValue(local.content)
+        this.contentVersion++
       }
     }
   }
@@ -139,6 +154,9 @@ export class EditorStore {
   // lines (all real text deleted, but vditor left a trailing newline or two)
   // read as "non-empty" and could still be sent/saved. .trim() closes that.
   get canSend() {
+    // Read (not use) contentVersion purely to register it as a MobX
+    // dependency -- see the field's own comment for why this is needed.
+    void this.contentVersion
     return this.files?.every(i => !i?.uploadPromise?.loading?.value) && (this.files?.length != 0 || (this.vditor?.getValue() ?? '').trim() != '')
   }
 
@@ -160,12 +178,14 @@ export class EditorStore {
 
   insertMarkdown = (text) => {
     this.vditor?.insertValue(text)
+    this.contentVersion++
     this.onChange?.(this.vditor?.getValue() ?? '')
     this.focus()
   }
 
   replaceMarkdown = (text) => {
     this.vditor?.setValue(text)
+    this.contentVersion++
     this.onChange?.(this.vditor?.getValue() ?? '')
     this.focus()
   }
@@ -218,6 +238,7 @@ export class EditorStore {
 
   clearMarkdown = () => {
     this.vditor?.setValue('')
+    this.contentVersion++
     this.onChange?.('')
     this.focus()
   }
@@ -376,6 +397,7 @@ export class EditorStore {
             } else {
               this.vditor?.insertValue(`[${fileName}](${filePath})`)
             }
+            this.contentVersion++
             RootStore.Get(DialogStandaloneStore).close()
           }}>{i18n.t('context')}</Button>
         <Button color='primary' onPress={async e => {
@@ -437,6 +459,7 @@ export class EditorStore {
       let content = this.vditor?.getValue() ?? ''
       if (this.mode == 'create' && this.currentTagLabel != '') {
         this.vditor?.insertValue(`\n\n${this.currentTagLabel} `)
+        this.contentVersion++
         this.onChange?.(this.vditor?.getValue() ?? '')
       }
       content = this.vditor?.getValue() ?? ''
@@ -480,6 +503,7 @@ export class EditorStore {
 
   clearEditor = () => {
     this.vditor?.setValue('')
+    this.contentVersion++
     this.files = [];
     this.references = []
     this.metadata = {};

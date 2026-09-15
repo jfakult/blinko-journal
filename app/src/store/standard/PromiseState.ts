@@ -157,6 +157,13 @@ export class PromisePageState<T extends (...args: any) => Promise<any>, U = Retu
   size = PageSize
   sid = "PromisePageState";
   key?: string;
+  // CUSTOM-JOURNAL: purely for the [SPINNER-DEBUG] logs below -- distinct
+  // from `key`, which (see constructor) registers this instance in
+  // RootStore and SKIPS makeAutoObservable, so reusing it here for
+  // unregistered lists like noteOnlyList/noteList/trashList would silently
+  // break their reactivity. Remove once the "loading spinner never clears"
+  // investigation is done.
+  debugLabel?: string;
   loading = new BooleanState();
   isLoadAll: boolean = false;
   autoAuthRedirect: boolean = true;
@@ -235,11 +242,14 @@ export class PromisePageState<T extends (...args: any) => Promise<any>, U = Retu
       if (this.isLoadAll) return this.value
       const res = await this.function.apply(this.context, args);
       if (!Array.isArray(res)) throw new Error("PromisePageState function must return array")
+      // [SPINNER-DEBUG] remove once the "loading spinner never clears" investigation is done.
+      console.log(`[SPINNER-DEBUG] ${this.debugLabel ?? '(unlabeled)'} call(): page=${this.page} size=${this.size.value} res.length=${res.length} prevValueLength=${this.value?.length ?? 0}`);
       if (res.length == 0) {
         this.isLoadAll = true
         if (this.page == 1) {
           this.setValue(null);
         }
+        console.log(`[SPINNER-DEBUG] ${this.debugLabel ?? '(unlabeled)'} call(): empty page -> isLoadAll=true, valueLength=${this.value?.length ?? 0}`);
         //@ts-ignore
         return this.value
       }
@@ -257,6 +267,14 @@ export class PromisePageState<T extends (...args: any) => Promise<any>, U = Retu
           });
           this.setValue(Array.from(existingMap.values()));
         }
+        // CUSTOM-JOURNAL: [SPINNER-DEBUG] -- a full page (res.length === size)
+        // is ambiguous: it could mean "there's definitely more" OR "this was
+        // exactly the last page and the total happens to be a multiple of
+        // size" -- isLoadAll is NOT set here either way, so if it's actually
+        // the latter, the UI still thinks there's more to load until one
+        // more (empty) page is fetched. Logged so we can see if this is what
+        // "stuck at the last entry" actually is.
+        console.log(`[SPINNER-DEBUG] ${this.debugLabel ?? '(unlabeled)'} call(): full page (ambiguous last-page case) -> isLoadAll still false, valueLength=${this.value?.length ?? 0}`);
       } else {
         if (this.page == 1) {
           this.setValue(res);
@@ -266,6 +284,7 @@ export class PromisePageState<T extends (...args: any) => Promise<any>, U = Retu
           this.setValue(this.value!.concat(res));
           this.isLoadAll = true
         }
+        console.log(`[SPINNER-DEBUG] ${this.debugLabel ?? '(unlabeled)'} call(): partial page -> isLoadAll=true, valueLength=${this.value?.length ?? 0}`);
       }
 
       if (this.autoAlert && this.successMsg && res) {

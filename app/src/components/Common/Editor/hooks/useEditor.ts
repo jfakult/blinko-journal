@@ -403,6 +403,16 @@ export const useEditorInit = (
       },
       input: (value) => {
         onChange?.(value)
+        // CUSTOM-JOURNAL: this fires on every real keystroke -- the only
+        // place that does, since programmatic setValue/insertValue calls
+        // elsewhere (editorStore.tsx) don't trigger it, they bump
+        // contentVersion themselves instead. Without this, canSend (which
+        // reads vditor.getValue() imperatively, not an observable) never
+        // got a reactive trigger from typing -- only from this.files
+        // changing -- so the send button stayed stuck showing whatever it
+        // was at last render for a text-only entry (see contentVersion's
+        // own comment in editorStore.tsx).
+        store.contentVersion++
         // Re-render all content when content changes (for preview mode)
         if (store.viewMode !== 'raw') {
           setTimeout(() => {

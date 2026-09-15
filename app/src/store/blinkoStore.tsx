@@ -330,6 +330,7 @@ export class BlinkoStore implements Store {
   }
 
   blinkoList = new PromisePageState({
+    debugLabel: 'blinkoList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -347,6 +348,7 @@ export class BlinkoStore implements Store {
   })
 
   noteOnlyList = new PromisePageState({
+    debugLabel: 'noteOnlyList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -364,6 +366,7 @@ export class BlinkoStore implements Store {
   })
 
   todoList = new PromisePageState({
+    debugLabel: 'todoList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -381,6 +384,7 @@ export class BlinkoStore implements Store {
   })
 
   archivedList = new PromisePageState({
+    debugLabel: 'archivedList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -397,6 +401,7 @@ export class BlinkoStore implements Store {
   })
 
   trashList = new PromisePageState({
+    debugLabel: 'trashList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -412,6 +417,7 @@ export class BlinkoStore implements Store {
   })
 
   noteList = new PromisePageState({
+    debugLabel: 'noteList',
     function: async ({ page, size, ...filterConfig }) => {
       return this.getFilteredNotes({
         page,
@@ -537,7 +543,9 @@ export class BlinkoStore implements Store {
 
   async onBottom() {
     const currentPath = new URLSearchParams(window.location.search).get('path');
-    
+    // [SPINNER-DEBUG] remove once the "loading spinner never clears" investigation is done.
+    console.log(`[SPINNER-DEBUG] onBottom() fired: path=${currentPath}`);
+
     if (currentPath === 'notes') {
       await this.noteOnlyList.callNextPage({});
     } else if (currentPath === 'todo') {

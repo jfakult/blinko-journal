@@ -86,11 +86,7 @@ const Analytics = observer(() => {
         )
       }
 
-      {
-        stats?.moodStats && stats.moodStats.days.length > 0 && (
-          <MoodTrendChart moodStats={stats.moodStats} />
-        )
-      }
+      <MoodTrendChart />
 
       {
         /* CUSTOM-JOURNAL: hidden until notes.metadata.location.name has any data —

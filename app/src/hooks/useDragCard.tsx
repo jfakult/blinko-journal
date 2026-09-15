@@ -38,6 +38,8 @@ export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, inser
 
   // Update local notes when the list changes (but not during drag operations)
   useEffect(() => {
+    // [SPINNER-DEBUG] remove once the "loading spinner never clears" investigation is done.
+    console.log(`[SPINNER-DEBUG] useDragCard sync effect firing: notes=${notes === undefined ? 'undefined' : notes.length} isDragging=${isDraggingRef.current} isCustomSort=${isCustomSort}`);
     if (notes && !isDraggingRef.current) {
       const sortedNotes = isCustomSort
         // Custom sort active: keep the backend's order, only pin isTop notes first.
@@ -51,9 +53,13 @@ export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, inser
           });
       setLocalNotes(sortedNotes);
       onNotesUpdate?.(sortedNotes);
+      console.log(`[SPINNER-DEBUG] useDragCard sync effect: setLocalNotes length=${sortedNotes.length}`);
     }
     else if (!notes) {
       setLocalNotes([]);
+      console.log(`[SPINNER-DEBUG] useDragCard sync effect: notes undefined -> setLocalNotes([])`);
+    } else if (isDraggingRef.current) {
+      console.log(`[SPINNER-DEBUG] useDragCard sync effect: skipped, isDragging=true (localNotes NOT updated to match notes.length=${notes?.length})`);
     }
   }, [notes, isCustomSort]);
 

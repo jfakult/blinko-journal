@@ -245,5 +245,120 @@ export const analyticsRouter = router({
         locationStats: finalLocationStats,
         moodStats
       }
+    }),
+
+  // CUSTOM-JOURNAL: separate from monthlyStats on purpose -- the mood trend
+  // chart has its own Week/Month/3 Months/YTD/1 Year/3 Years/All range
+  // control, independent of the page's single month-picker (which also
+  // drives noteCount/tagStats/locationStats, all of which make sense scoped
+  // to one calendar month; mood trend doesn't). Reuses monthlyStats'
+  // per-day mood-averaging approach (JS-side, since moodScores is a JSONB
+  // blob keyed dynamically by axis name), but buckets by day/week/month
+  // depending on range so a multi-year chart doesn't render thousands of
+  // unreadable daily points.
+  moodTrend: authProcedure
+    .meta({ openapi: { method: 'POST', path: '/v1/analytics/mood-trend', summary: 'Query mood trend over a time range', protect: true, tags: ['Analytics'] } })
+    .input(z.object({
+      range: z.enum(['week', 'month', '3months', 'ytd', '1year', '3years', 'all'])
+    }))
+    .output(z.object({
+      axes: z.array(z.object({
+        id: z.number(),
+        positiveLabel: z.string(),
+        negativeLabel: z.string().nullable()
+      })),
+      // CUSTOM-JOURNAL: tells the frontend how to format x-axis labels --
+      // 'day'/'week' buckets are real YYYY-MM-DD dates (week = that week's
+      // start), 'month' buckets are YYYY-MM-01 (first of month).
+      bucket: z.enum(['day', 'week', 'month']),
+      days: z.array(z.string()),
+      series: z.record(z.string(), z.array(z.number().nullable()))
+    }))
+    .mutation(async function ({ ctx, input }) {
+      const now = dayjs()
+      let startDate: Date | undefined
+      let bucket: 'day' | 'week' | 'month'
+      switch (input.range) {
+        case 'week':
+          startDate = now.subtract(7, 'day').startOf('day').toDate()
+          bucket = 'day'
+          break
+        case 'month':
+          startDate = now.subtract(1, 'month').startOf('day').toDate()
+          bucket = 'day'
+          break
+        case '3months':
+          startDate = now.subtract(3, 'month').startOf('day').toDate()
+          bucket = 'day'
+          break
+        case 'ytd':
+          startDate = now.startOf('year').toDate()
+          bucket = 'week'
+          break
+        case '1year':
+          startDate = now.subtract(1, 'year').startOf('day').toDate()
+          bucket = 'week'
+          break
+        case '3years':
+          startDate = now.subtract(3, 'year').startOf('day').toDate()
+          bucket = 'month'
+          break
+        case 'all':
+          startDate = undefined
+          bucket = 'month'
+          break
+      }
+
+      const axes = await prisma.moodAxis.findMany({ orderBy: { sortOrder: 'asc' } })
+      if (axes.length === 0) {
+        return { axes: [], bucket, days: [], series: {} }
+      }
+
+      const notesWithMood = await prisma.notes.findMany({
+        where: {
+          accountId: parseInt(ctx.id),
+          ...(startDate && { createdAt: { gte: startDate } })
+        },
+        select: { createdAt: true, moodScores: true }
+      })
+
+      const bucketKey = (d: Date): string => {
+        const m = dayjs(d)
+        if (bucket === 'day') return m.format('YYYY-MM-DD')
+        if (bucket === 'week') return m.startOf('week').format('YYYY-MM-DD')
+        return m.startOf('month').format('YYYY-MM-DD')
+      }
+
+      const byBucket = new Map<string, { sums: Record<number, number>; counts: Record<number, number> }>()
+      for (const note of notesWithMood) {
+        if (!note.moodScores || typeof note.moodScores !== 'object') continue
+        const key = bucketKey(note.createdAt)
+        if (!byBucket.has(key)) byBucket.set(key, { sums: {}, counts: {} })
+        const entry = byBucket.get(key)!
+        for (const axis of axes) {
+          const val = (note.moodScores as Record<string, unknown>)[axis.positiveLabel]
+          if (typeof val === 'number') {
+            entry.sums[axis.id] = (entry.sums[axis.id] ?? 0) + val
+            entry.counts[axis.id] = (entry.counts[axis.id] ?? 0) + 1
+          }
+        }
+      }
+
+      const days = Array.from(byBucket.keys()).sort()
+      const series: Record<string, (number | null)[]> = {}
+      for (const axis of axes) {
+        series[String(axis.id)] = days.map(day => {
+          const entry = byBucket.get(day)!
+          const count = entry.counts[axis.id]
+          return count ? Math.round((entry.sums[axis.id] / count) * 10) / 10 : null
+        })
+      }
+
+      return {
+        axes: axes.map(a => ({ id: a.id, positiveLabel: a.positiveLabel, negativeLabel: a.negativeLabel ?? null })),
+        bucket,
+        days,
+        series
+      }
     })
 })

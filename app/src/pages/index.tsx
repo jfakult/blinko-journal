@@ -135,7 +135,14 @@ const Home = observer(() => {
       return currentListState.isLoadAll && localNotes.length === (currentListState.value?.length ?? 0)
     },
     get isSyncingList() {
-      return currentListState.isLoadAll && localNotes.length !== (currentListState.value?.length ?? 0)
+      const result = currentListState.isLoadAll && localNotes.length !== (currentListState.value?.length ?? 0)
+      // [SPINNER-DEBUG] only logs once isLoadAll is true (i.e. once we
+      // think we've reached the end), since that's the scenario reported
+      // stuck -- remove once the investigation is done.
+      if (currentListState.isLoadAll) {
+        console.log(`[SPINNER-DEBUG] isSyncingList computed: isLoadAll=${currentListState.isLoadAll} localNotes.length=${localNotes.length} currentListState.value.length=${currentListState.value?.length ?? 0} -> isSyncingList=${result}`);
+      }
+      return result
     }
   }))
 
