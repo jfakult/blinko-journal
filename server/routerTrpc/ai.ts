@@ -343,7 +343,21 @@ export const aiRouter = router({
   tagAuditPendingCount: authProcedure
     .output(z.number())
     .query(async () => {
-      return await prisma.notes.count({ where: { aiTaggedAt: null, isRecycle: false } });
+      const untaggedCount = await prisma.notes.count({ where: { aiTaggedAt: null, isRecycle: false } });
+      // CUSTOM-JOURNAL: also surface notes with a transcription gap (an
+      // audio attachment marked transcribedAt but the note content is
+      // missing its expected block -- see AiService.hasTranscriptionBlock
+      // and TagAuditJob's transcriptionGapCandidates) in the same preview
+      // count shown before running the audit, so the button's "N entries
+      // need attention" isn't just about tags/mood.
+      const notesWithTranscribedAudio = await prisma.notes.findMany({
+        where: { isRecycle: false, attachments: { some: { transcribedAt: { not: null } } } },
+        include: { attachments: true },
+      });
+      const transcriptionGapCount = notesWithTranscribedAudio.filter((n) =>
+        n.attachments.some((a) => a.transcribedAt != null && AiService.isAudio(a.name || a.path) && !AiService.hasTranscriptionBlock(n.content, a.id))
+      ).length;
+      return untaggedCount + transcriptionGapCount;
     }),
 
   tagAuditProgress: authProcedure

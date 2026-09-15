@@ -41,6 +41,52 @@ export class AiService {
   static isImage = isImage;
   static isAudio = isAudio;
 
+  // CUSTOM-JOURNAL: escapes regex metacharacters in a literal string --
+  // needed because the transcription heading below contains literal
+  // parentheses ("(#123)"), which are regex grouping syntax.
+  static #escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // CUSTOM-JOURNAL: each attachment's transcript is wrapped in a plain,
+  // visible markdown heading (keyed by attachment id) followed immediately
+  // by a blockquote -- NOT an HTML comment marker, which an earlier version
+  // of this used. That broke as soon as a user edited the note at all: the
+  // Vditor WYSIWYG editor round-trips content through its own DOM/markdown
+  // serializer on every save, and doesn't preserve arbitrary raw HTML
+  // comments verbatim -- they'd get mangled or stripped, silently breaking
+  // the marker-based detection this relies on to replace (not duplicate) a
+  // transcript on retranscribe. A heading + blockquote are both real
+  // markdown constructs Vditor fully understands and round-trips correctly.
+  // The block's extent is simply "the heading line, then every immediately
+  // following line that starts with '>'" -- no separate closing marker
+  // needed, since the first non-'>' line (blank line, plain text, or
+  // another heading) naturally ends it. This also means the block can never
+  // accidentally swallow trailing user content the way an unbounded
+  // "match to end of string" scheme could.
+  static transcriptionHeading(attachmentId: number): string {
+    return `## Audio Transcription (#${attachmentId})`;
+  }
+
+  static transcriptionBlock(attachmentId: number, text: string): string {
+    const quoted = text.split('\n').map((line) => `> ${line}`).join('\n');
+    return `\n\n${AiService.transcriptionHeading(attachmentId)}\n${quoted}`;
+  }
+
+  static transcriptionBlockRegex(attachmentId: number): RegExp {
+    const heading = AiService.#escapeRegex(AiService.transcriptionHeading(attachmentId));
+    return new RegExp(`\\n*${heading}\\n(?:>.*(?:\\n|$))*`);
+  }
+
+  // Used by the tag-audit job to find notes whose audio attachment was
+  // marked transcribed (attachments.transcribedAt set) but whose content is
+  // actually missing the expected block -- e.g. an old note from before this
+  // marker format existed, a transcription that silently produced nothing,
+  // or a block an editor round-trip corrupted before this fix.
+  static hasTranscriptionBlock(content: string, attachmentId: number): boolean {
+    return AiService.transcriptionBlockRegex(attachmentId).test(content);
+  }
+
   static async loadFileContent(filePath: string): Promise<string> {
     try {
       let loader: BaseDocumentLoader;
@@ -1373,25 +1419,6 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       return { transcribedAny: false, message };
     }
 
-    // CUSTOM-JOURNAL: each attachment's transcript is wrapped in a matched
-    // HTML-comment marker pair keyed by attachment id
-    // (<!-- transcription:attachmentId=N --> ... <!-- /transcription:attachmentId=N -->)
-    // around an indented blockquote, instead of a bare, positionally-numbered
-    // "## Audio Transcription" heading. Two reasons: (1) retranscribing
-    // (force:true) must REPLACE the prior transcript for that attachment, not
-    // stack a duplicate underneath it -- the marker makes each attachment's
-    // block findable and replaceable in place without touching other
-    // attachments' blocks or user-authored content that happens to contain
-    // the words "Audio Transcription"; (2) a blockquote visually separates
-    // AI-generated transcript text from the user's own note body. HTML
-    // comments render as nothing in the markdown preview.
-    const transcriptionBlock = (attachmentId: number, text: string): string => {
-      const quoted = text.split('\n').map((line) => `> ${line}`).join('\n');
-      return `\n\n<!-- transcription:attachmentId=${attachmentId} -->\n> ## Audio Transcription\n${quoted}\n<!-- /transcription:attachmentId=${attachmentId} -->`;
-    };
-    const transcriptionBlockRegex = (attachmentId: number): RegExp =>
-      new RegExp(`\\n*<!-- transcription:attachmentId=${attachmentId} -->[\\s\\S]*?<!-- /transcription:attachmentId=${attachmentId} -->`);
-
     // transcriptions are matched to targetAttachments positionally by
     // fileName (see processNoteAudioAttachments) -- zip the attachment id
     // back in so each block can be looked up/replaced independent of order.
@@ -1424,8 +1451,8 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       // could itself have added/removed a block between retries.
       let newContent = current.content;
       for (const t of transcriptionsWithId) {
-        const block = transcriptionBlock(t.attachmentId, t.transcription);
-        const re = transcriptionBlockRegex(t.attachmentId);
+        const block = AiService.transcriptionBlock(t.attachmentId, t.transcription);
+        const re = AiService.transcriptionBlockRegex(t.attachmentId);
         newContent = re.test(newContent) ? newContent.replace(re, block) : newContent + block;
       }
 

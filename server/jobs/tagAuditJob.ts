@@ -11,9 +11,14 @@ import { logAiTaskStart, logAiTaskFinish } from "@server/lib/aiTaskLog";
 // CUSTOM-JOURNAL: backfills AI tagging + mood scoring for notes that never
 // got either -- e.g. notes created before AI Post-Processing was turned on,
 // or notes where postProcessNote's fire-and-forget call failed silently.
-// Modeled directly on RebuildEmbeddingJob (same progress/cache/batch shape),
-// since it's the existing precedent for a resumable, stoppable backfill job
-// with no live tRPC Context to build a userCaller from.
+// Also repairs notes whose audio attachment is marked transcribed but whose
+// content is actually missing the expected transcription block (see
+// transcriptionGapCandidates below) -- independent of the tags/mood work,
+// gated on its own AI Audio Transcription toggle rather than AI
+// Post-Processing. Modeled directly on RebuildEmbeddingJob (same
+// progress/cache/batch shape), since it's the existing precedent for a
+// resumable, stoppable backfill job with no live tRPC Context to build a
+// userCaller from.
 export const TAG_AUDIT_TASK_NAME = "tagAudit";
 const PROGRESS_CACHE_KEY = "tag-audit-progress";
 const BATCH_SIZE = 5;
@@ -193,17 +198,20 @@ export class TagAuditJob extends BaseScheduleJob {
     });
 
     try {
-      // CUSTOM-JOURNAL: skip the whole run cleanly (not per-note) when
-      // AI features or specifically AI Post-Processing (the toggle that
-      // covers exactly this backfill -- tags + mood analysis) are off,
-      // rather than gating each note individually inside the batch loop.
-      // A cron job finding the feature disabled should just no-op for the
-      // entire run and log why.
+      // CUSTOM-JOURNAL: master killswitch stops the whole run cleanly (not
+      // per-note) -- but post-processing (tags+mood) and transcription are
+      // independent toggles covering independent candidate sets below
+      // (untagged/repair/moodMigration vs. transcriptionGap), so unlike
+      // before, one being off doesn't skip the other's candidates. A cron
+      // run where both happen to be off still no-ops entirely, logged below.
       const config = await AiModelFactory.globalConfig();
-      if (!(await AiModelFactory.assertAiEnabled(config)) || !config.isUseAiPostProcessing) {
-        const message = !(await AiModelFactory.assertAiEnabled(config))
+      const aiEnabled = await AiModelFactory.assertAiEnabled(config);
+      const postProcessingEnabled = aiEnabled && !!config.isUseAiPostProcessing;
+      const transcriptionEnabled = aiEnabled && config.isUseAiTranscription !== false;
+      if (!aiEnabled || (!postProcessingEnabled && !transcriptionEnabled)) {
+        const message = !aiEnabled
           ? 'AI features are disabled, skipping tag audit run'
-          : 'AI post-processing is disabled, skipping tag audit run';
+          : 'AI post-processing and audio transcription are both disabled, skipping tag audit run';
         await logAiTaskFinish(taskLogId, 'success', message);
         const skippedProgress: TagAuditProgress = { ...currentProgress, isRunning: false };
         await this.saveProgressToCache(skippedProgress);
@@ -215,10 +223,14 @@ export class TagAuditJob extends BaseScheduleJob {
       const failedIds = new Set<number>(currentProgress.failedNoteIds || []);
       const results: TagAuditResultRecord[] = [...(currentProgress.results || [])];
 
-      const untaggedNotes = await prisma.notes.findMany({
+      // CUSTOM-JOURNAL: the 3 candidate sets below (untagged, repair,
+      // moodMigration) are all tags+mood work -- gated on postProcessingEnabled,
+      // same as postProcessNote's own gate. transcriptionGapCandidates further
+      // down is gated independently on transcriptionEnabled instead.
+      const untaggedNotes = postProcessingEnabled ? await prisma.notes.findMany({
         where: { aiTaggedAt: null, isRecycle: false, id: { notIn: Array.from(processedIds) } },
         orderBy: { id: 'asc' },
-      });
+      }) : [];
 
       // CUSTOM-JOURNAL: repair pass -- notes marked aiTaggedAt (so the query
       // above skips them entirely) but with zero real tag relations. Root
@@ -235,10 +247,10 @@ export class TagAuditJob extends BaseScheduleJob {
       // sitting in the content -- no AI call, so it can't invent tags
       // different from what's visibly there, and no content/aiTaggedAt
       // mutation needed since both are already correct.
-      const repairCandidates = (await prisma.notes.findMany({
+      const repairCandidates = postProcessingEnabled ? (await prisma.notes.findMany({
         where: { aiTaggedAt: { not: null }, isRecycle: false, tags: { none: {} }, id: { notIn: Array.from(processedIds) } },
         orderBy: { id: 'asc' },
-      })).filter((n) => extractHashtags(n.content).length > 0);
+      })).filter((n) => extractHashtags(n.content).length > 0) : [];
       const repairOnlyIds = new Set(repairCandidates.map((n) => n.id));
 
       // CUSTOM-JOURNAL: one-time migration pass -- notes.moodScores used to
@@ -252,22 +264,49 @@ export class TagAuditJob extends BaseScheduleJob {
       // the current name-keyed format. Tags are untouched; this is scoped
       // to mood only. Excludes notes already in the other two candidate
       // sets above, which already rerun mood as part of their own pass.
-      const moodMigrationCandidates = (await prisma.notes.findMany({
+      const moodMigrationCandidates = postProcessingEnabled ? (await prisma.notes.findMany({
         where: {
           isRecycle: false,
           id: { notIn: Array.from(new Set([...processedIds, ...untaggedNotes.map((n) => n.id), ...repairCandidates.map((n) => n.id)])) },
         },
         orderBy: { id: 'asc' },
-      })).filter((n) => n.moodScores && typeof n.moodScores === 'object' && Object.keys(n.moodScores as object).some((k) => /^\d+$/.test(k)));
+      })).filter((n) => n.moodScores && typeof n.moodScores === 'object' && Object.keys(n.moodScores as object).some((k) => /^\d+$/.test(k))) : [];
       const moodMigrationOnlyIds = new Set(moodMigrationCandidates.map((n) => n.id));
 
-      const notes = [...untaggedNotes, ...repairCandidates, ...moodMigrationCandidates];
+      // CUSTOM-JOURNAL: notes with an audio attachment already marked
+      // transcribedAt (so the automatic/untagged path above won't touch it
+      // again -- it only looks at attachments with transcribedAt IS NULL)
+      // but whose content is actually missing that attachment's expected
+      // transcription block. Root causes this catches: a transcription
+      // attempt that produced empty text (still marked transcribedAt so it
+      // isn't retried forever, per transcribeAndAppend's own comment), a
+      // note predating the current heading+blockquote marker format, or a
+      // block an editor round-trip corrupted. Repair re-runs
+      // transcribeAndAppend with force:true, which replaces-in-place per
+      // attachment id (see AiService.transcriptionBlockRegex) -- safe to
+      // force even for attachments that DO already have a correct block,
+      // since force only re-fetches+replaces, never duplicates.
+      const excludeFromGapCheck = Array.from(new Set([...processedIds, ...untaggedNotes.map((n) => n.id), ...repairCandidates.map((n) => n.id), ...moodMigrationCandidates.map((n) => n.id)]));
+      const transcriptionGapCandidates = transcriptionEnabled ? (await prisma.notes.findMany({
+        where: {
+          isRecycle: false,
+          id: { notIn: excludeFromGapCheck },
+          attachments: { some: { transcribedAt: { not: null } } },
+        },
+        include: { attachments: true },
+        orderBy: { id: 'asc' },
+      })).filter((n) =>
+        n.attachments.some((a) => a.transcribedAt != null && AiService.isAudio(a.name || a.path) && !AiService.hasTranscriptionBlock(n.content, a.id))
+      ) : [];
+      const transcriptionGapOnlyIds = new Set(transcriptionGapCandidates.map((n) => n.id));
+
+      const notes = [...untaggedNotes, ...repairCandidates, ...moodMigrationCandidates, ...transcriptionGapCandidates];
 
       const total = (currentProgress.total || 0) > 0 ? currentProgress.total : notes.length + processedIds.size;
       let current = currentProgress.current || processedIds.size;
       const startingCurrent = current;
 
-      console.log(`[${new Date().toISOString()}] start tag audit, ${untaggedNotes.length} untagged notes, ${repairCandidates.length} broken notes to repair, ${moodMigrationCandidates.length} notes to migrate off id-keyed mood scores`);
+      console.log(`[${new Date().toISOString()}] start tag audit, ${untaggedNotes.length} untagged notes, ${repairCandidates.length} broken notes to repair, ${moodMigrationCandidates.length} notes to migrate off id-keyed mood scores, ${transcriptionGapCandidates.length} notes with a missing transcription block to re-transcribe`);
 
       for (let i = 0; i < notes.length; i += BATCH_SIZE) {
         if (this.forceStopFlag) {
@@ -315,6 +354,24 @@ export class TagAuditJob extends BaseScheduleJob {
                 },
               });
               results.push({ type: 'success', content: `[mood-migrate] ${note.content.slice(0, 30)}`, timestamp: new Date().toISOString() });
+              processedIds.add(note.id);
+              current++;
+            } else if (transcriptionGapOnlyIds.has(note.id)) {
+              // CUSTOM-JOURNAL: transcription-gap repair path -- force
+              // retranscribes every audio attachment on this note (not just
+              // the one found missing its block), since transcribeAndAppend
+              // replaces-in-place per attachment id and force is the only
+              // mode that re-processes an attachment already marked
+              // transcribedAt. No tag/mood work here -- that's the untagged
+              // path's job, and a note that's already tagged keeps its
+              // existing tags/mood even though its transcript just changed
+              // (same "self-heals over a couple of runs" tradeoff as the
+              // repair/moodMigration passes above, not a full reprocess).
+              const result = await AiService.transcribeAndAppend({ noteId: note.id, accountId: note.accountId!, force: true });
+              if (!result.transcribedAny) {
+                throw new Error(result.message || 'Transcription gap repair produced no text');
+              }
+              results.push({ type: 'success', content: `[transcription-gap] ${note.content.slice(0, 30)}`, timestamp: new Date().toISOString() });
               processedIds.add(note.id);
               current++;
             } else {
@@ -408,7 +465,7 @@ export class TagAuditJob extends BaseScheduleJob {
       }
 
       const finishMessage = notes.length === 0
-        ? 'Nothing needed processing (no untagged, broken, or old-format-mood notes found)'
+        ? 'Nothing needed processing (no untagged, broken, old-format-mood, or transcription-gap notes found)'
         : `Tagged ${current}/${total} notes (${failedIds.size} failed)`;
       await logAiTaskFinish(taskLogId, 'success', finishMessage);
       return finalProgress;
