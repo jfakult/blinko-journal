@@ -1453,12 +1453,15 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       .filter((a) => AiService.isAudio(a.name || a.path));
     const targetAttachments = force ? audioAttachments : audioAttachments.filter((a) => a.transcribedAt == null);
     if (targetAttachments.length === 0) {
-      const message = 'No audio attachment found on this note';
-      if (force) {
-        const taskLogId = await logAiTaskStart({ accountId, taskType: 'transcription', noteId, message: 'Manual transcribe requested' });
-        await logAiTaskFinish(taskLogId, 'error', message);
-      }
-      return { transcribedAny: false, message };
+      // CUSTOM-JOURNAL: no task log entry here, unlike the two config-error
+      // branches above -- "this note has no audio attachment" isn't really
+      // a failure (the manual Transcribe button has no attachment-presence
+      // gate, so it's reachable from any text-only note), it's just nothing
+      // to do. The caller (handleTranscribe) already surfaces `message` as
+      // a toast on !transcribedAny, so this stays visible to the user
+      // without also leaving a permanent "error" row in the AI Task Log for
+      // something that isn't one.
+      return { transcribedAny: false, message: 'No audio attachment found on this note' };
     }
 
     const taskLogId = await logAiTaskStart({

@@ -349,6 +349,16 @@ async function seedDefaultAiConfig() {
   await setConfigIfMissing('isUseAiTranscription', true);
   await setConfigIfMissing('isShowAiChatTab', true);
 
+  // CUSTOM-JOURNAL: RAG metadata toggles (AI Settings -> RAG) -- also
+  // default true, same "all AI features on by default" rule as above. These
+  // were previously unseeded, which combined with RagSettingsSection.tsx's
+  // useState(false)/!! fallback (also fixed) meant new installs silently
+  // embedded notes into RAG with no date/mood/tag context at all until an
+  // admin happened to open that tab and flip them on manually.
+  await setConfigIfMissing('ragIncludeDates', true);
+  await setConfigIfMissing('ragIncludeMood', true);
+  await setConfigIfMissing('ragIncludeTags', true);
+
   // CUSTOM-JOURNAL: default to creation-time ordering/display -- a journal
   // entry's date should read as "when I wrote this," not "when it was last
   // touched" (which now includes AI tag/mood passes, even though those are
