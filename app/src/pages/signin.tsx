@@ -95,6 +95,40 @@ export default function Component() {
     }
   });
 
+  // CUSTOM-JOURNAL: lets a visitor try the app without an invite -- logs
+  // into a fixed, low-privilege "guest" account rather than the form's own
+  // user/password fields (so it doesn't clobber whatever the visitor may
+  // have already typed in). The guest:guest account itself must exist on
+  // the server already (create it once via the normal Sign Up flow, or
+  // Settings -> User List) -- this button does not provision it.
+  const guestLogin = new PromiseState({
+    function: async () => {
+      try {
+        if (isTauriEnv) {
+          reinitializeTrpcApi();
+        }
+        const res = await signIn('credentials', {
+          username: 'guest',
+          password: 'guest',
+          callbackUrl: '/',
+          redirect: false,
+        });
+
+        if (res?.ok) {
+          navigate('/');
+        } else {
+          RootStore.Get(ToastPlugin).error(res?.error || t('login-failed'));
+        }
+
+        return res;
+      } catch (error) {
+        console.error('Guest login error:', error);
+        RootStore.Get(ToastPlugin).error(t('login-failed'));
+        return { ok: false, error: 'Login failed' };
+      }
+    }
+  });
+
   const userStorage = new StorageState({ key: 'username' });
   const passwordStorage = new StorageState({ key: 'password' });
   const endpointStorage = new StorageState({ key: 'blinkoEndpoint' });
@@ -157,7 +191,12 @@ export default function Component() {
                       window.location.href = getBlinkoEndpoint(`/api/auth/${provider.id}`);
                     }}
                   >
-                    {t('sign-in-with-provider', { provider: provider.name })}
+                    {/* CUSTOM-JOURNAL: was t('sign-in-with-provider', { provider: provider.name })
+                        which surfaced the backing OAuth provider's configured name (e.g. "Pocket ID")
+                        directly on the login screen -- hardcoded to this instance's own branding
+                        instead, per explicit request. Still keyed by provider.id for the actual
+                        OAuth redirect above, so this is display-only. */}
+                    Login with FakNet
                   </Button>
                 ))}
               </div>
@@ -244,6 +283,19 @@ export default function Component() {
               </Link>
             </p>
           )}
+          <p className="text-center text-small">
+            <button
+              type="button"
+              // CUSTOM-JOURNAL: cursor-pointer is needed explicitly -- Tailwind's
+              // preflight resets <button> to cursor: default, so without this it
+              // didn't look clickable despite being one.
+              className="text-primary underline-offset-2 hover:underline cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={guestLogin.loading.value}
+              onClick={() => guestLogin.call()}
+            >
+              {guestLogin.loading.value ? t('signing-in') : t('just-here-to-check-it-out')}
+            </button>
+          </p>
           {blinko.config.value?.signinFooterEnabled &&
            blinko.config.value?.signinFooterText?.trim() && (
             <div className="mt-2 text-center max-w-full">
