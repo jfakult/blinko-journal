@@ -178,11 +178,33 @@ export const MyAudioRecorder = ({ onComplete }: MyAudioRecorderProps) => {
           setMilliseconds(prev => (prev + 1) % 100);
         }, 10);
         millisecondTimerRef.current = msTimer;
-      } catch (error) {
+      } catch (error: any) {
         console.error("Failed to start recording:", error);
-        // Clear cached permission on error
-        localStorage.removeItem('microphone_permission_granted');
-        setAudioPermissionGranted(false);
+        // CUSTOM-JOURNAL: was unconditional -- any failure here (this runs
+        // AFTER permission was already confirmed granted, either from cache
+        // or the checkMicrophonePermission() call above) reset
+        // audioPermissionGranted back to false and cleared the cached flag,
+        // sending the user back to the "Grant microphone permission" screen
+        // even when permission genuinely was fine and the real problem was
+        // something else (no device attached, mic busy/in use, etc.) --
+        // clicking "grant" again just re-triggers the same underlying
+        // failure, looking like the button "does nothing." Only reset the
+        // permission UI for errors that are actually about permission;
+        // surface anything else as its own toast instead.
+        if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError' || error?.name === 'SecurityError') {
+          localStorage.removeItem('microphone_permission_granted');
+          setAudioPermissionGranted(false);
+        } else {
+          const toast = RootStore.Get(ToastPlugin);
+          if (error?.name === 'NotFoundError' || error?.name === 'DevicesNotFoundError') {
+            toast.error(i18n.t('no-microphone-device-found', 'No microphone device was found, even though permission is granted -- check that a microphone is connected and not in use by another app.'));
+          } else if (error?.name === 'NotReadableError' || error?.name === 'TrackStartError') {
+            toast.error(i18n.t('microphone-busy', 'The microphone could not be started -- it may be in use by another app or browser tab.'));
+          } else {
+            toast.error(i18n.t('microphone-permission-failed', 'Could not access the microphone: {{message}}', { message: error?.message || 'unknown error' }));
+          }
+          RootStore.Get(DialogStandaloneStore).close();
+        }
       }
     };
 

@@ -151,9 +151,10 @@ export const requestMicrophonePermission = async (): Promise<boolean> => {
 
         // Check current platform
         const currentPlatform = isInTauri() ? platform() : 'web';
-        
+
         // Try to request permission first
-        const stream = await navigator.mediaDevices.getUserMedia({ 
+        let lastError: any = null;
+        const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
                 echoCancellation: true,
                 noiseSuppression: true,
@@ -161,9 +162,10 @@ export const requestMicrophonePermission = async (): Promise<boolean> => {
             }
         }).catch((error) => {
             console.error('getUserMedia error:', error);
+            lastError = error;
             return null;
         });
-        
+
         if (stream) {
             // Permission granted, stop the stream immediately
             stream.getTracks().forEach(track => track.stop());
@@ -210,8 +212,32 @@ export const requestMicrophonePermission = async (): Promise<boolean> => {
                 'Microphone permission is required.\n\n' +
                 'Please ensure your microphone is properly configured and permissions are granted.'
             );
+        } else {
+            // CUSTOM-JOURNAL: this branch was missing entirely -- every other
+            // branch above is keyed off Tauri's platform() (desktop/mobile
+            // builds only), so plain browser use (currentPlatform === 'web',
+            // what this app actually runs as day-to-day) fell through all of
+            // them with zero user feedback: the click handler in
+            // AudioDialog/index.tsx just calls this function and does
+            // nothing when it resolves false, so a denied/blocked/missing
+            // mic made the "Grant microphone permission" button look
+            // completely broken -- no native prompt (browsers don't
+            // re-show it once a site's mic permission is set to "Block",
+            // they just fail getUserMedia immediately) and no in-app
+            // message either. NotFoundError is called out specifically
+            // since Chrome/Chromium report it (not NotAllowedError) when a
+            // site's mic permission is blocked, which is indistinguishable
+            // here from a genuinely absent device.
+            const toast = RootStore.Get(ToastPlugin);
+            if (lastError?.name === 'NotFoundError' || lastError?.name === 'DevicesNotFoundError') {
+                toast.error(i18n.t('no-microphone-found-or-blocked', 'No microphone was found. If you have one connected, your browser may be blocking microphone access for this site -- check the site permissions (click the icon next to the address bar) and allow the microphone, then try again.'));
+            } else if (lastError?.name === 'NotAllowedError' || lastError?.name === 'PermissionDeniedError') {
+                toast.error(i18n.t('microphone-permission-denied-web', 'Microphone access was denied. Allow it for this site in your browser (click the icon next to the address bar) and try again.'));
+            } else {
+                toast.error(i18n.t('microphone-permission-failed', 'Could not access the microphone: {{message}}', { message: lastError?.message || 'unknown error' }));
+            }
         }
-        
+
         // Clear cache when permission denied
         localStorage.removeItem('microphone_permission_granted');
         return false;
