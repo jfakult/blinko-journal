@@ -465,6 +465,17 @@ const InfoRow = ({ label, value }: { label: string; value: string }) => (
 // Task Log rows (attempts / time to generate), fetched on open via
 // aiTaskLogList's noteId filter. Reuses the same centered DialogStore modal
 // ViewSentiments above uses.
+// CUSTOM-JOURNAL: same icon/color-by-status convention as AiTaskLogSection.tsx
+// and RagSettingsSection.tsx's history logs -- kept as its own small copy
+// rather than extracted to a shared module, since each caller's row layout
+// differs enough that a shared component wouldn't save much.
+const INFO_STATUS_ICON: Record<string, { icon: string; color: string }> = {
+  running: { icon: 'line-md:loading-twotone-loop', color: 'text-primary' },
+  success: { icon: 'mingcute:check-circle-line', color: 'text-success' },
+  error: { icon: 'mingcute:close-circle-line', color: 'text-danger' },
+  stopped: { icon: 'mingcute:stop-circle-line', color: 'text-warning' },
+};
+
 const InfoDialogContent = observer(() => {
   const blinko = RootStore.Get(BlinkoStore)
   const note = blinko.curSelectedNote
@@ -506,12 +517,24 @@ const InfoDialogContent = observer(() => {
           <div className="text-desc text-sm">{i18n.t('no-ai-activity-yet')}</div>
         ) : (
           <div className="flex flex-col gap-1">
-            {logs.map(log => (
-              <div key={log.id} className="text-xs flex justify-between gap-2">
-                <span>{log.taskType} · {log.status}</span>
-                <span>{log.finishedAt ? `${dayjs(log.finishedAt).diff(dayjs(log.startedAt), 'second')}s` : '…'}</span>
-              </div>
-            ))}
+            {logs.map(log => {
+              const style = INFO_STATUS_ICON[log.status] || INFO_STATUS_ICON.error
+              return (
+                <div key={log.id} className="text-xs flex items-center gap-2 p-1.5 rounded-md bg-default-50">
+                  <Icon icon={style.icon} width="14" height="14" className={`shrink-0 ${style.color}`} />
+                  <div className="flex flex-col min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{log.taskType}</span>
+                      <span className="text-desc shrink-0">{log.finishedAt ? `${dayjs(log.finishedAt).diff(dayjs(log.startedAt), 'second')}s` : '…'}</span>
+                    </div>
+                    <span className="text-desc">{fmt(log.startedAt)}</span>
+                    {log.status === 'error' && log.message && (
+                      <span className="text-danger truncate" title={log.message}>{log.message}</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </div>

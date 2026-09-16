@@ -357,7 +357,6 @@ export const syncNoteTagsFromContent = async (noteId: number, accountId: number,
   const oldTags = oldTagsInThisNote.map((i) => i.tag).filter((i) => !!i);
   const oldTagsString = oldTags.map((i) => `${i?.name}<key>${i?.parent}`);
   const newTagsString = newTags.map((i) => `${i?.name}<key>${i?.parent}`);
-  const needTobeAddedRelationTags = _.difference(newTagsString, oldTagsString);
   const needToBeDeletedRelationTags = _.difference(oldTagsString, newTagsString);
 
   if (needToBeDeletedRelationTags.length != 0) {
@@ -378,28 +377,43 @@ export const syncNoteTagsFromContent = async (noteId: number, accountId: number,
     });
   }
 
-  if (needTobeAddedRelationTags.length != 0) {
-    for (const relationTag of needTobeAddedRelationTags) {
-      const [name, parent] = relationTag.split('<key>');
-      const tagId = newTags.find((t) => t.name == name && t.parent == Number(parent))?.id;
-      if (tagId) {
-        try {
-          await prisma.tagsToNote.create({ data: { noteId, tagId } });
-        } catch (error: any) {
-          if (error.code !== 'P2002') {
-            throw error;
-          }
-        }
-      }
-    }
-  }
+  // CUSTOM-JOURNAL: was a second pass here that diffed newTagsString against
+  // oldTagsString and re-created each "new" relation via prisma.tagsToNote.
+  // create(), catching P2002 (unique constraint) on every single call --
+  // handleAddTags above already upserts every relation in the tree
+  // atomically (see its own CUSTOM-JOURNAL comment on the TOCTOU fix), so
+  // this second pass could never do anything but throw-and-catch a
+  // duplicate-key error it caused itself. Confirmed via direct testing that
+  // removing it doesn't change behavior -- tags still attach correctly,
+  // just without the repeated "Unique constraint failed" noise in the logs
+  // on every tag apply.
 
   // delete unused tags
   const allTagsIds = oldTags?.map((i) => i?.id);
   const usingTags = (await prisma.tagsToNote.findMany({ where: { tagId: { in: allTagsIds } } })).map((i) => i.tagId).filter((i) => !!i);
   const needTobeDeledTags = _.difference(allTagsIds, usingTags);
   if (needTobeDeledTags.length != 0) {
-    await prisma.tag.deleteMany({ where: { id: { in: needTobeDeledTags }, accountId } });
+    // CUSTOM-JOURNAL: was one batched deleteMany -- the usingTags check
+    // above and this delete aren't atomic, so a concurrent
+    // syncNoteTagsFromContent call for the same tag (e.g. a manual tag edit
+    // landing alongside an AI reanalyze pass, the same TOCTOU shape
+    // handleAddTags' upsert above already had to handle for the add side)
+    // could re-attach a tag to some note in the gap between the two, and
+    // deleteMany would then throw a foreign key constraint violation for
+    // the WHOLE batch, aborting this function and, uncaught, the caller's
+    // whole tag-sync attempt. Delete one at a time so a single lost race
+    // just leaves that one tag (now genuinely back in use) in place instead
+    // of failing every tag in the batch.
+    for (const tagId of needTobeDeledTags) {
+      if (!tagId) continue;
+      try {
+        await prisma.tag.deleteMany({ where: { id: tagId, accountId } });
+      } catch (error: any) {
+        if (error.code !== 'P2003') {
+          throw error;
+        }
+      }
+    }
   }
 
   return newTags;

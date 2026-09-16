@@ -830,15 +830,44 @@ export class AiService {
     tags: string[];
   }): Promise<boolean> {
     if (tags.length === 0) return true;
-    const newContent = `${expectedContent}\n${tags.join(' ')}`;
-    const { count } = await prisma.notes.updateMany({
-      where: { id: noteId, content: expectedContent, updatedAt: expectedUpdatedAt },
-      data: { content: newContent, updatedAt: expectedUpdatedAt },
-    });
-    if (count === 0) {
-      console.warn(`[AI tagging] skipped appending tags to note ${noteId}: note changed since read, avoiding clobber`);
-      return false;
+
+    // CUSTOM-JOURNAL: was a single CAS attempt against the caller's
+    // originally-read content/updatedAt -- if anything touched the note
+    // between that read and this write (a real-world case: reanalyzeNote's
+    // own suggestTags() LLM call can take several seconds, plenty of time
+    // for a concurrent edit or another AI pass to land), the write matched
+    // 0 rows and this silently gave up entirely, dropping the tags with no
+    // retry. Same CAS-retry-against-a-fresh-read shape transcribeAndAppend
+    // already uses: re-read on a lost race and retry against the latest
+    // content, only truly giving up after repeated collisions (which would
+    // mean genuinely constant concurrent writes to this one note).
+    const MAX_ATTEMPTS = 5;
+    let currentContent = expectedContent;
+    let currentUpdatedAt = expectedUpdatedAt;
+    let newContent = '';
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      newContent = `${currentContent}\n${tags.join(' ')}`;
+      const { count } = await prisma.notes.updateMany({
+        where: { id: noteId, content: currentContent, updatedAt: currentUpdatedAt },
+        data: { content: newContent, updatedAt: currentUpdatedAt },
+      });
+      if (count > 0) break;
+
+      const fresh = await prisma.notes.findUnique({ where: { id: noteId }, select: { content: true, updatedAt: true } });
+      if (!fresh) {
+        console.warn(`[AI tagging] note ${noteId} no longer exists, aborting tag append`);
+        return false;
+      }
+      currentContent = fresh.content;
+      currentUpdatedAt = fresh.updatedAt;
+
+      if (attempt === MAX_ATTEMPTS - 1) {
+        console.warn(`[AI tagging] skipped appending tags to note ${noteId} after ${MAX_ATTEMPTS} attempts: kept losing the race with concurrent writes`);
+        return false;
+      }
     }
+
     await syncNoteTagsFromContent(noteId, accountId, newContent);
     // CUSTOM-JOURNAL: verify the sync actually produced relation rows --
     // server-console-only (was also a visible "TagSync" AI Task Log entry on
@@ -1009,18 +1038,31 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         });
       }
 
+      let tagErrorMessage: string | null = null;
       if (processingMode === 'tags' || processingMode === 'both') {
         try {
           const suggestedTags = await AiService.suggestTags(note.content, taskLogId);
-          await AiService.appendTagsIfUnchanged({
+          const applied = await AiService.appendTagsIfUnchanged({
             noteId,
             accountId: note.accountId!,
             expectedContent: note.content,
             expectedUpdatedAt: note.updatedAt,
             tags: suggestedTags,
           });
-        } catch (error) {
+          // CUSTOM-JOURNAL: was silently swallowed either way (a thrown
+          // error just logged to the server console, and a CAS-skip false
+          // return wasn't even checked) -- the overall task still reported
+          // plain "success" regardless, so a flaky AI call or a lost CAS
+          // race (note edited between read and write) made tagging silently
+          // no-op with zero trace anywhere but the server console. Surface
+          // both into the final task log message/status so this is actually
+          // visible (AI Task Log / the note's Info popup).
+          if (!applied) {
+            tagErrorMessage = 'Tags were not applied: note content changed before the write, skipped to avoid clobbering the edit';
+          }
+        } catch (error: any) {
           console.error('Error processing tags:', error);
+          tagErrorMessage = error?.message || String(error);
         }
 
         try {
@@ -1081,7 +1123,11 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         }
       }
 
-      await logAiTaskFinish(taskLogId, 'success', `mode: ${processingMode}`);
+      await logAiTaskFinish(
+        taskLogId,
+        tagErrorMessage ? 'error' : 'success',
+        tagErrorMessage ? `mode: ${processingMode} (tagging failed: ${tagErrorMessage})` : `mode: ${processingMode}`
+      );
       // CUSTOM-JOURNAL: RAG embedding deliberately happens LAST, after
       // tags+mood (and any content-editing modes) above have finished --
       // see embedNoteWithMetadata's own comment for why this replaced the
@@ -1151,17 +1197,28 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
       noteContent = refreshed?.content ?? note.content;
       noteUpdatedAt = refreshed?.updatedAt ?? note.updatedAt;
 
+      // CUSTOM-JOURNAL: see postProcessNote's identical tagErrorMessage
+      // handling -- was silently swallowed either way (thrown error only
+      // logged to the server console, a CAS-skip false return wasn't even
+      // checked), so "Re-run AI analysis" could report success while
+      // tagging silently did nothing. Surfaced into the final task message
+      // below instead.
+      let tagErrorMessage: string | null = null;
       try {
         const suggestedTags = await AiService.suggestTags(noteContent, taskLogId);
-        await AiService.appendTagsIfUnchanged({
+        const applied = await AiService.appendTagsIfUnchanged({
           noteId,
           accountId: note.accountId!,
           expectedContent: noteContent,
           expectedUpdatedAt: noteUpdatedAt,
           tags: suggestedTags,
         });
-      } catch (error) {
+        if (!applied) {
+          tagErrorMessage = 'Tags were not applied: note content changed before the write, skipped to avoid clobbering the edit';
+        }
+      } catch (error: any) {
         console.error('Error re-running tags:', error);
+        tagErrorMessage = error?.message || String(error);
       }
 
       const moodScores = await AiService.scoreMood(noteContent, taskLogId);
@@ -1185,7 +1242,11 @@ Remember: ALWAYS use tools to implement your suggestions rather than just descri
         },
       });
 
-      await logAiTaskFinish(taskLogId, 'success', 'Manual re-run AI analysis completed');
+      await logAiTaskFinish(
+        taskLogId,
+        tagErrorMessage ? 'error' : 'success',
+        tagErrorMessage ? `Manual re-run AI analysis completed (tagging failed: ${tagErrorMessage})` : 'Manual re-run AI analysis completed'
+      );
       // CUSTOM-JOURNAL: re-embed last, after transcription/tags/mood above
       // -- same reasoning as postProcessNote's own final embed call.
       const config = await AiModelFactory.globalConfig();
