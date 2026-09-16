@@ -5,6 +5,7 @@ import { BlinkoStore } from '@/store/blinkoStore';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useMediaQuery } from 'usehooks-ts';
 
 interface TagPickerProps {
   currentTags: string[];
@@ -25,6 +26,12 @@ export const TagPicker = observer(({ currentTags, onAdd, onRemove, showCurrentTa
   const blinko = RootStore.Get(BlinkoStore);
   const [isOpen, setIsOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
+  // CUSTOM-JOURNAL: bigger chips/icons on mobile for easier tapping (this is
+  // the control behind the right-click "Edit Tags" dialog, among other
+  // places) -- same 768px cutoff this app already uses elsewhere (isPc).
+  const isPc = useMediaQuery('(min-width: 768px)');
+  const chipTextClass = isPc ? 'text-xs' : 'text-sm';
+  const iconSize = isPc ? 12 : 18;
 
   const allPaths = blinko.tagList.value?.pathTags || [];
   const available = allPaths.filter((p: string) => !currentTags.includes(p));
@@ -42,13 +49,13 @@ export const TagPicker = observer(({ currentTags, onAdd, onRemove, showCurrentTa
       {showCurrentTags && currentTags.map(path => (
         <div
           key={path}
-          className="text-desc text-xs blinko-tag whitespace-nowrap font-bold flex items-center gap-1"
+          className={`text-desc ${chipTextClass} blinko-tag whitespace-nowrap font-bold flex items-center gap-1`}
         >
           #{path}
           <Icon
             icon="mdi:close"
-            width="12"
-            height="12"
+            width={iconSize}
+            height={iconSize}
             className="cursor-pointer opacity-60 hover:opacity-100 !transition-all"
             onClick={(e) => { e.stopPropagation(); onRemove(path); }}
           />
@@ -57,10 +64,10 @@ export const TagPicker = observer(({ currentTags, onAdd, onRemove, showCurrentTa
       <Popover placement="bottom-start" isOpen={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger>
           <div
-            className="text-desc text-xs blinko-tag whitespace-nowrap font-bold hover:opacity-80 !transition-all cursor-pointer flex items-center gap-0.5"
+            className={`text-desc ${chipTextClass} blinko-tag whitespace-nowrap font-bold hover:opacity-80 !transition-all cursor-pointer flex items-center gap-0.5`}
             onClick={(e) => e.stopPropagation()}
           >
-            <Icon icon="mingcute:add-line" width="12" height="12" />
+            <Icon icon="mingcute:add-line" width={iconSize} height={iconSize} />
             {t('tag')}
           </div>
         </PopoverTrigger>

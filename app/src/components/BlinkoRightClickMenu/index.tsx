@@ -353,12 +353,61 @@ const AddTagDialogContent = observer(() => {
 
   if (!noteId) return null
 
+  // CUSTOM-JOURNAL: currentTags is derived from blinko.curSelectedNote, a
+  // one-time snapshot taken when the menu was opened (see cardHeader.tsx's
+  // ShowEditTimeModel-style _.cloneDeep pattern) -- forceQuery++ alone
+  // refetches the underlying LIST, but never touches this snapshot, so a
+  // removed tag's chip stayed visible here (the delete had genuinely
+  // already happened server-side) until the dialog was closed and reopened
+  // against fresh data. Re-fetch and reassign curSelectedNote directly so
+  // this dialog (an observer) picks up the change immediately.
+  const refreshCurrentNote = async () => {
+    const fresh = await blinko.noteDetail.call({ id: noteId })
+    if (fresh) blinko.curSelectedNote = fresh as any
+  }
+
+  // CUSTOM-JOURNAL: same {path -> tag id} reconstruction TagList/index.tsx's
+  // goToTag uses -- buildHashTagTreeFromDb already computes each node's full
+  // path (node.metadata.path) alongside its real DB id.
+  const flattenWithId = (node: any): { path: string; id: number }[] => [
+    { path: node.metadata.path, id: node.id },
+    ...((node.children || []) as any[]).flatMap(flattenWithId),
+  ];
+  const pathToId = new Map(tagTree.flatMap(flattenWithId).map(({ path, id }) => [path, id]));
+
   return (
     <div className="pb-2">
       <TagPicker
         currentTags={currentTags}
-        onAdd={(path) => { api.tags.attachToNote.mutate({ noteId, tagPath: path }).then(() => blinko.forceQuery++) }}
-        onRemove={(path) => { api.tags.detachFromNote.mutate({ noteId, tagPath: path }).then(() => blinko.forceQuery++) }}
+        onAdd={(path) => {
+          api.tags.attachToNote.mutate({ noteId, tagPath: path })
+            .then(() => { blinko.forceQuery++; refreshCurrentNote() })
+            .catch((error: any) => {
+              RootStore.Get(ToastPlugin).error(error?.message || i18n.t('operation-failed'))
+            })
+        }}
+        onRemove={(path) => {
+          // CUSTOM-JOURNAL: optimistic -- remove the chip immediately
+          // instead of waiting on the round trip (that lag was the actual
+          // complaint; the previous fix above only addressed a *stale*
+          // chip lingering after the request had already finished). Roll
+          // back to the pre-removal tag list and toast if the mutation
+          // actually fails.
+          const tagId = pathToId.get(path)
+          const prevNote = note
+          if (tagId != null && prevNote) {
+            blinko.curSelectedNote = {
+              ...prevNote,
+              tags: (prevNote.tags as any[]).filter((t: any) => t.tag?.id !== tagId),
+            } as any
+          }
+          api.tags.detachFromNote.mutate({ noteId, tagPath: path })
+            .then(() => { blinko.forceQuery++; refreshCurrentNote() })
+            .catch((error: any) => {
+              if (prevNote) blinko.curSelectedNote = prevNote
+              RootStore.Get(ToastPlugin).error(error?.message || i18n.t('operation-failed'))
+            })
+        }}
       />
     </div>
   )
@@ -367,7 +416,7 @@ const AddTagDialogContent = observer(() => {
 const handleAddTag = () => {
   RootStore.Get(DialogStore).setData({
     isOpen: true,
-    title: i18n.t('add-tag'),
+    title: i18n.t('edit-tags'),
     content: <AddTagDialogContent />
   })
 }
@@ -631,7 +680,14 @@ export const AddTagItem = observer(() => {
   return (
     <div className="flex items-start gap-2">
       <Icon icon="mingcute:add-line" width="20" height="20" />
-      <div>{t('add-tag')}</div>
+      {/* CUSTOM-JOURNAL: was t('add-tag') ("Add Tag") -- the dialog this
+          opens (AddTagDialogContent) shows every current tag as a removable
+          chip alongside the add control, so "Add Tag" undersold what it
+          actually does. Kept as its own key (edit-tags), separate from
+          add-tag, since BlinkoMultiSelectPop's bulk action reuses add-tag
+          for a genuinely add-only operation (no per-note removal makes
+          sense across a multi-selection) and shouldn't be relabeled too. */}
+      <div>{t('edit-tags')}</div>
     </div>
   );
 });
@@ -680,13 +736,6 @@ export const DeleteItem = observer(() => {
   </div>
 })
 
-export const EditTimeItem = observer(() => {
-  const { t } = useTranslation();
-  return <div className="flex items-start gap-2">
-    <Icon icon="mdi:clock-edit-outline" width="20" height="20" />
-    <div>{t('edit-time')}</div>
-  </div>
-})
 
 export const BlinkoRightClickMenu = observer(() => {
   const [isDetailPage, setIsDetailPage] = useState(false)
@@ -715,10 +764,6 @@ export const BlinkoRightClickMenu = observer(() => {
         </ContextMenuItem>
       </>
     ) : <></>}
-
-    <ContextMenuItem onClick={() => ShowEditTimeModel()}>
-      <EditTimeItem />
-    </ContextMenuItem>
 
     <ContextMenuItem onClick={handleInfo}>
       <InfoItem />
@@ -771,7 +816,7 @@ export const BlinkoRightClickMenu = observer(() => {
     ) : <></>}
 
     {blinko.config.value?.isEnableAiFeatures !== false
-      && blinko.config.value?.isUseAiPostProcessing
+      && blinko.config.value?.isUseAiPostProcessing !== false
       && blinko.config.value?.mainModelId ? (
       <ContextMenuItem onClick={handleReanalyze}>
         <ReanalyzeItem />
@@ -846,7 +891,6 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
           </DropdownItem>
         </>
       ) : null}
-      <DropdownItem key="EditTimeItem" onPress={() => ShowEditTimeModel()}> <EditTimeItem /></DropdownItem>
       <DropdownItem key="InfoItem" onPress={handleInfo}> <InfoItem /></DropdownItem>
       <DropdownItem key="TopItem" onPress={handleTop}> <TopItem />  </DropdownItem>
       {blinko.curSelectedNote?.isRecycle ? (
@@ -880,7 +924,7 @@ export const LeftCickMenu = observer(({ onTrigger, className }: { onTrigger: () 
       ) : <></>}
 
       {blinko.config.value?.isEnableAiFeatures !== false
-        && blinko.config.value?.isUseAiPostProcessing
+        && blinko.config.value?.isUseAiPostProcessing !== false
         && blinko.config.value?.mainModelId ? (
         <DropdownItem key="ReanalyzeItem" onPress={handleReanalyze}>
           <ReanalyzeItem />
