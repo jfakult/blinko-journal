@@ -155,13 +155,28 @@ export const BlinkoEditor = observer(({ mode, onSended, onHeightChange, isInDial
           blinko.createAttachmentsStorage.clear()
           blinko.createContentStorage.clear()
           blinko.createMetadataStorage.clear()
+          // CUSTOM-JOURNAL: forceQuery++ removed from both navigate() calls
+          // below -- it's redundant AND actively racy. navigate() already
+          // changes the URL's searchParams, which useQuery()'s effect
+          // (blinkoStore.tsx) depends on directly, so it re-fires from the
+          // URL change alone with no forceQuery bump needed. The
+          // unconditional updateTicker++ a few lines down (needed regardless,
+          // for tagList/config/dailyReview refresh) triggers blinko.use()'s
+          // OWN effect -> refreshData(), which re-reads the just-updated URL
+          // and refetches the same list a second time. Two independent React
+          // effects both calling resetAndCall() on the same
+          // PromisePageState, microtask-adjacent but not batched together,
+          // was the "loading spinner never clears" bug's most reliable
+          // trigger (every text-only journal entry creation hit it): the
+          // second resetAndCall() resets isLoadAll=false synchronously right
+          // as the first fetch is landing, and PromisePageState's own
+          // loadingLock guard against a genuinely concurrent second fetch
+          // only closes half that gap.
           if (blinko.noteTypeDefault == NoteType.NOTE && searchParams.get('path') != 'notes') {
             await navigate('/?path=notes')
-            blinko.forceQuery++
           }
           if (blinko.noteTypeDefault == NoteType.BLINKO && location.pathname != '/') {
             await navigate('/')
-            blinko.forceQuery++
           }
           blinko.updateTicker++
         } else {

@@ -110,7 +110,7 @@ const Home = observer(() => {
   }, [isNotesView, isTodoView, isArchivedView, isTrashView, isAllView, blinko]);
 
   // Use drag card hook only for non-todo views
-  const { localNotes, sensors, setLocalNotes, handleDragStart, handleDragEnd, handleDragOver } = useDragCard({
+  const { localNotes, sensors, handleDragStart, handleDragEnd, handleDragOver } = useDragCard({
     notes: isTodoView ? undefined : currentListState.value,
     activeId,
     setActiveId,
@@ -125,26 +125,26 @@ const Home = observer(() => {
     get showEditor() {
       return !blinko.noteListFilterConfig.isArchived && !blinko.noteListFilterConfig.isRecycle
     },
-    // CUSTOM-JOURNAL: currentListState.isLoadAll flips true as soon as the
-    // store's `value` array updates, but the cards actually on screen come
-    // from useDragCard's `localNotes`, which syncs one render behind (via a
-    // useEffect keyed on `notes`) -- so without this check, "all N entries
-    // loaded" briefly renders before the cards themselves do. Only show it
-    // once localNotes has actually caught up to the fetched value.
-    get showLoadAll() {
-      return currentListState.isLoadAll && localNotes.length === (currentListState.value?.length ?? 0)
-    },
-    get isSyncingList() {
-      const result = currentListState.isLoadAll && localNotes.length !== (currentListState.value?.length ?? 0)
-      // [SPINNER-DEBUG] only logs once isLoadAll is true (i.e. once we
-      // think we've reached the end), since that's the scenario reported
-      // stuck -- remove once the investigation is done.
-      if (currentListState.isLoadAll) {
-        console.log(`[SPINNER-DEBUG] isSyncingList computed: isLoadAll=${currentListState.isLoadAll} localNotes.length=${localNotes.length} currentListState.value.length=${currentListState.value?.length ?? 0} -> isSyncingList=${result}`);
-      }
-      return result
-    }
   }))
+
+  // CUSTOM-JOURNAL: showLoadAll/isSyncingList were previously `get` computeds
+  // inside the RootStore.Local(...) object above, closing over `localNotes`.
+  // RootStore.Local uses MobX's useLocalObservable, which (like
+  // `useState(() => ...)`) runs its factory exactly ONCE on mount and reuses
+  // that same object forever -- so those getters were permanently bound to
+  // whichever `localNotes` reference existed at the very first render
+  // (useDragCard's useState<any[]>([]) initial value, i.e. an empty array),
+  // never the current render's live value. Once currentListState.isLoadAll
+  // (a real MobX observable, correctly reactive) flipped true and the list
+  // had any notes, `isSyncingList` compared the frozen empty-array length
+  // against the real length and was permanently stuck true -- this was the
+  // "infinite loading circle... happens when there's nothing else to load"
+  // bug. Plain consts recomputed every render (not memoized at all) read
+  // this render's actual `localNotes` and have no staleness issue; `Home` is
+  // already an observer(), so it re-renders on both React state changes
+  // (localNotes) and MobX observable changes (currentListState.*).
+  const showLoadAll = currentListState.isLoadAll && localNotes.length === (currentListState.value?.length ?? 0)
+  const isSyncingList = currentListState.isLoadAll && localNotes.length !== (currentListState.value?.length ?? 0)
 
   const todosByDate = useMemo(() => {
     if (!isTodoView || !currentListState.value) return {} as Record<string, TodoGroup>;
@@ -298,7 +298,7 @@ const Home = observer(() => {
             </>
           )}
 
-          {store.isSyncingList && (
+          {isSyncingList && (
             <div className='w-full flex justify-center py-4'>
               {/* CUSTOM-JOURNAL: plain CSS spin, not an Iconify icon -- the
                   line-md "loading" icons don't reliably self-animate here
@@ -309,7 +309,7 @@ const Home = observer(() => {
               <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           )}
-          {store.showLoadAll && <div className='select-none w-full text-center text-sm font-bold text-ignore my-4'>{t('all-notes-have-been-loaded', { items: currentListState.value?.length })}</div>}
+          {showLoadAll && <div className='select-none w-full text-center text-sm font-bold text-ignore my-4'>{t('all-notes-have-been-loaded', { items: currentListState.value?.length })}</div>}
         </ScrollArea>
       }
     </div>

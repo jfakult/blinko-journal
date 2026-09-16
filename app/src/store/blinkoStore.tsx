@@ -330,7 +330,6 @@ export class BlinkoStore implements Store {
   }
 
   blinkoList = new PromisePageState({
-    debugLabel: 'blinkoList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -348,7 +347,6 @@ export class BlinkoStore implements Store {
   })
 
   noteOnlyList = new PromisePageState({
-    debugLabel: 'noteOnlyList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -366,7 +364,6 @@ export class BlinkoStore implements Store {
   })
 
   todoList = new PromisePageState({
-    debugLabel: 'todoList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -384,7 +381,6 @@ export class BlinkoStore implements Store {
   })
 
   archivedList = new PromisePageState({
-    debugLabel: 'archivedList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -401,7 +397,6 @@ export class BlinkoStore implements Store {
   })
 
   trashList = new PromisePageState({
-    debugLabel: 'trashList',
     function: async ({ page, size }) => {
       return this.getFilteredNotes({
         page,
@@ -417,7 +412,6 @@ export class BlinkoStore implements Store {
   })
 
   noteList = new PromisePageState({
-    debugLabel: 'noteList',
     function: async ({ page, size, ...filterConfig }) => {
       return this.getFilteredNotes({
         page,
@@ -543,8 +537,6 @@ export class BlinkoStore implements Store {
 
   async onBottom() {
     const currentPath = new URLSearchParams(window.location.search).get('path');
-    // [SPINNER-DEBUG] remove once the "loading spinner never clears" investigation is done.
-    console.log(`[SPINNER-DEBUG] onBottom() fired: path=${currentPath}`);
 
     if (currentPath === 'notes') {
       await this.noteOnlyList.callNextPage({});
@@ -614,9 +606,11 @@ export class BlinkoStore implements Store {
     } else if (currentPath === 'all') {
       this.noteList.resetAndCall({});
     } else {
-      this.blinkoList.resetAndCall({});
+      // CUSTOM-JOURNAL: matches useQuery()'s own default-path fix above --
+      // was blinkoList, but the bare root path renders noteOnlyList.
+      this.noteOnlyList.resetAndCall({});
     }
-    
+
     this.config.call()
     this.dailyReviewNoteList.call()
   }
@@ -738,7 +732,16 @@ export class BlinkoStore implements Store {
         this.noteListFilterConfig.isRecycle = true
         this.trashList.resetAndCall({});
       } else {
-        this.blinkoList.resetAndCall({});
+        // CUSTOM-JOURNAL: was blinkoList.resetAndCall({}) -- the bare root
+        // path (no ?path= at all, e.g. straight after login) renders
+        // noteOnlyList by default (see pages/index.tsx's currentListState),
+        // not blinkoList (this journal only ever creates NoteType.NOTE
+        // entries, see baseStore.ts's routerList comment). Querying the
+        // wrong list here meant the home page's actually-rendered list was
+        // never fetched at all on a fresh cold load, showing an empty page
+        // until some other action happened to trigger it.
+        this.noteListFilterConfig.type = NoteType.NOTE
+        this.noteOnlyList.resetAndCall({});
       }
     }, [this.forceQuery, location.pathname, searchParams])
   }

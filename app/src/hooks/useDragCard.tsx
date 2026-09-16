@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo } from 'react';
 import { DragEndEvent, DragStartEvent, MouseSensor, TouchSensor, useSensor, useSensors, closestCenter, useDroppable, useDraggable } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
@@ -21,7 +21,6 @@ interface UseDragCardProps {
 }
 
 export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, insertPosition, setInsertPosition, isDragForbidden, setIsDragForbidden }: UseDragCardProps) => {
-  const [localNotes, setLocalNotes] = useState<any[]>([]);
   const isDraggingRef = useRef(false);
   const blinko = RootStore.Get(BlinkoStore);
 
@@ -36,32 +35,38 @@ export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, inser
   const { sortField, orderBy } = blinko.noteListFilterConfig;
   const isCustomSort = sortField !== 'date' || orderBy !== 'desc';
 
-  // Update local notes when the list changes (but not during drag operations)
-  useEffect(() => {
-    // [SPINNER-DEBUG] remove once the "loading spinner never clears" investigation is done.
-    console.log(`[SPINNER-DEBUG] useDragCard sync effect firing: notes=${notes === undefined ? 'undefined' : notes.length} isDragging=${isDraggingRef.current} isCustomSort=${isCustomSort}`);
-    if (notes && !isDraggingRef.current) {
-      const sortedNotes = isCustomSort
-        // Custom sort active: keep the backend's order, only pin isTop notes first.
-        ? [...notes].sort((a, b) => (a.isTop === b.isTop ? 0 : (b.isTop ? 1 : -1)))
-        // Default view: sort by isTop first (desc), then by sortOrder (asc) to maintain the correct order from the database
-        : [...notes].sort((a, b) => {
-            if (a.isTop !== b.isTop) {
-              return b.isTop ? 1 : -1;
-            }
-            return a.sortOrder - b.sortOrder;
-          });
-      setLocalNotes(sortedNotes);
-      onNotesUpdate?.(sortedNotes);
-      console.log(`[SPINNER-DEBUG] useDragCard sync effect: setLocalNotes length=${sortedNotes.length}`);
-    }
-    else if (!notes) {
-      setLocalNotes([]);
-      console.log(`[SPINNER-DEBUG] useDragCard sync effect: notes undefined -> setLocalNotes([])`);
-    } else if (isDraggingRef.current) {
-      console.log(`[SPINNER-DEBUG] useDragCard sync effect: skipped, isDragging=true (localNotes NOT updated to match notes.length=${notes?.length})`);
-    }
+  // CUSTOM-JOURNAL: this used to be separate `useState` + a `useEffect` that
+  // copied/sorted `notes` into it on change ("but not during drag
+  // operations" -- isDraggingRef). That indirection existed only to support
+  // drag-to-reorder, which this journal has disabled entirely (see
+  // shouldEnableDrag below -- sensors are configured so a real drag can
+  // never activate, so isDraggingRef.current is never actually true and
+  // that guard was already dead). A separate state+effect copy that lags
+  // one render behind the real data was also the direct cause of the
+  // "infinite loading circle" bug (a consumer elsewhere read a stale
+  // closure over this value). Plain useMemo recomputed straight from
+  // `notes` has no lag and no staleness risk. If drag-to-reorder is ever
+  // re-enabled upstream, this is the spot that needs to go back to
+  // state+effect (to pause resorting mid-drag so the dragged card doesn't
+  // jump) -- everything below (sensors, handlers) is otherwise untouched
+  // and ready for that.
+  const localNotes = useMemo(() => {
+    if (!notes) return [];
+    return isCustomSort
+      // Custom sort active: keep the backend's order, only pin isTop notes first.
+      ? [...notes].sort((a, b) => (a.isTop === b.isTop ? 0 : (b.isTop ? 1 : -1)))
+      // Default view: sort by isTop first (desc), then by sortOrder (asc) to maintain the correct order from the database
+      : [...notes].sort((a, b) => {
+          if (a.isTop !== b.isTop) {
+            return b.isTop ? 1 : -1;
+          }
+          return a.sortOrder - b.sortOrder;
+        });
   }, [notes, isCustomSort]);
+
+  useEffect(() => {
+    onNotesUpdate?.(localNotes);
+  }, [localNotes, onNotesUpdate]);
 
   // CUSTOM-JOURNAL: drag-to-reorder disabled entirely, per the user's
   // preference for sort-driven ordering only (see FilterPop's Sort section)
@@ -141,9 +146,11 @@ export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, inser
             sortOrder: index,
           }));
 
-          // Call the original hook's update logic
-          setLocalNotes(updatedNotes);
-
+          // CUSTOM-JOURNAL: no local setState here anymore (localNotes is a
+          // derived useMemo, not state) -- unreachable in practice anyway
+          // (see shouldEnableDrag above), and the memo will reflect the
+          // server's own sortOrder once the mutation below completes and
+          // the list refetches.
           // Update server
           const updates = updatedNotes.map((note) => ({
             id: note.id,
@@ -183,7 +190,6 @@ export const useDragCard = ({ notes, onNotesUpdate, activeId, setActiveId, inser
   return {
     localNotes,
     sensors,
-    setLocalNotes,
     isDraggingRef,
     handleDragStart,
     handleDragEnd,
