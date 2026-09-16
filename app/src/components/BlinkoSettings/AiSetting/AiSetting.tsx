@@ -71,42 +71,71 @@ export default observer(function AiSetting() {
 
       {isAiEnabled && (
         <>
-          <CollapsibleCard icon="hugeicons:ai-magic" title="AI Providers & Models">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <Button
-                  size='md'
-                  className='ml-auto'
-                  color="primary"
-                  startContent={<Icon icon="iconamoon:cloud-add-light" width="20" height="20" />}
-                  onPress={() => {
-                    RootStore.Get(DialogStore).setData({
-                      isOpen: true,
-                      size: '2xl',
-                      title: 'Add Provider',
-                      content: <ProviderDialogContent />,
-                    });
-                  }}
-                >
-                  {t('add-provider')}
-                </Button>
-              </div>
+          {/* CUSTOM-JOURNAL: this whole tab is now visible to non-admins too
+              (settings.tsx's requireAdmin flag was flipped off) -- "it
+              should be up to the user to decide their use of AI, the admin
+              just determines the model." Everything below that configures
+              shared/global state (which provider+model the whole instance
+              uses, global prompts, the mood-axis schema, the account-wide
+              tag-audit backfill, shared MCP server definitions) stays
+              superadmin-gated here in the UI, on top of config.update's own
+              existing server-side superadmin check for non-per-user keys --
+              this just avoids showing controls that would error on save.
+              AiFeaturesToggleSection (per-user toggles), RagSettingsSection
+              and AiTaskLogSection (both visible to everyone now, each
+              self-gates its own admin-only bits internally -- index-wide
+              stats/metadata toggles for RAG, the mine/all scope switch for
+              both) are unaffected. */}
+          {user.isSuperAdmin && (
+            <>
+              <CollapsibleCard icon="hugeicons:ai-magic" title="AI Providers & Models">
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <Button
+                      size='md'
+                      className='ml-auto'
+                      color="primary"
+                      startContent={<Icon icon="iconamoon:cloud-add-light" width="20" height="20" />}
+                      onPress={() => {
+                        RootStore.Get(DialogStore).setData({
+                          isOpen: true,
+                          size: '2xl',
+                          title: 'Add Provider',
+                          content: <ProviderDialogContent />,
+                        });
+                      }}
+                    >
+                      {t('add-provider')}
+                    </Button>
+                  </div>
 
-              {aiStore.aiProviders.value?.map(provider => (
-                <ProviderCard key={provider.id} provider={provider as any} />
-              ))}
-            </div>
-          </CollapsibleCard>
+                  {aiStore.aiProviders.value?.map(provider => (
+                    <ProviderCard key={provider.id} provider={provider as any} />
+                  ))}
+                </div>
+              </CollapsibleCard>
 
-          <DefaultModelsSection />
+              <DefaultModelsSection />
 
-          <EmbeddingSettingsSection />
+              <EmbeddingSettingsSection />
+            </>
+          )}
 
-          {user.isSuperAdmin && <RagSettingsSection />}
+          {/* CUSTOM-JOURNAL: unconditional now -- RagSettingsSection gates
+              its own admin-only pieces (index stats, metadata toggles)
+              internally, and non-admins get to see their own RAG history.
+              AiTaskLogSection sits directly below it per explicit request,
+              so the two history logs are adjacent. */}
+          <RagSettingsSection />
+          <AiTaskLogSection />
 
-          <GlobalPromptSection />
+          {user.isSuperAdmin && (
+            <>
+              <GlobalPromptSection />
 
-          <AiHintPromptsSection />
+              <AiHintPromptsSection />
+            </>
+          )}
 
           {/* CUSTOM-JOURNAL: per the "AI Post-Processing" toggle's spec
               ("blocks AI features... tags and mood analysis"), everything
@@ -122,97 +151,108 @@ export default observer(function AiSetting() {
               AiHintPromptsSection's chat-tab prompts, task log, chat
               tools/MCP) is generic AI infra, not post-processing specific,
               so it stays visible regardless of this toggle. */}
-          {isPostProcessingEnabled && (
+          {isPostProcessingEnabled && user.isSuperAdmin && (
             <>
               <AiPostProcessingSection />
               <TagAuditSection />
+              {/* CUSTOM-JOURNAL: mood axes are a global, shared schema (the
+                  dimensions every user's notes get scored on) -- was
+                  visible-to-all with only its edit actions self-gated
+                  internally, now admin-only end to end per explicit
+                  request. */}
               <MoodAxisSection />
             </>
           )}
 
-          <AiTaskLogSection />
-
-          <AiToolsSection />
+          {user.isSuperAdmin && <AiToolsSection />}
 
           {/* CUSTOM-JOURNAL: wrapper + className below exist only so the journal-declutter
               plugin (plugins/journal-declutter) has a stable selector (.cj-hide-mcp) to hide
               MCP config via CSS — MCP is embedded inline in this AI tab rather than being its
               own settings tab, so there was nothing else to hang a selector off of. */}
-          <div className="cj-hide-mcp">
-            <McpServersSection />
-          </div>
+          {user.isSuperAdmin && (
+            <div className="cj-hide-mcp">
+              <McpServersSection />
+            </div>
+          )}
 
-          <CollapsibleCard icon="hugeicons:api" title="MCP Integration" className="cj-hide-mcp">
-            <div className="space-y-4">
-              <div className="text-sm text-default-600 mb-4">
-                {t('mcp-integration-desc', 'Model Context Protocol (MCP) integration allows AI assistants to connect to Blinko and use its tools.')}
-              </div>
-
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium text-default-700">Streamable HTTP Endpoint URL</label>
-                  <Input
-                    value={streamableHttpEndpoint}
-                    readOnly
-                    className="mt-1"
-                    endContent={<Copy size={20} content={streamableHttpEndpoint} />}
-                  />
-                  <p className="mt-1 text-xs text-success-600">
-                    {t('mcp-streamable-http-recommended', 'Recommended for modern MCP clients.')}
-                  </p>
+          {/* CUSTOM-JOURNAL: was visible to everyone (it only ever showed
+              the viewer's own token/endpoint) -- hidden from non-admins per
+              explicit request, alongside the rest of the MCP integration
+              surface above. */}
+          {user.isSuperAdmin && (
+            <CollapsibleCard icon="hugeicons:api" title="MCP Integration" className="cj-hide-mcp">
+              <div className="space-y-4">
+                <div className="text-sm text-default-600 mb-4">
+                  {t('mcp-integration-desc', 'Model Context Protocol (MCP) integration allows AI assistants to connect to Blinko and use its tools.')}
                 </div>
 
-                <div>
-                  <label className="text-sm font-medium text-default-700">Legacy SSE Endpoint URL</label>
-                  <Input
-                    value={sseEndpoint}
-                    readOnly
-                    className="mt-1"
-                    endContent={<Copy size={20} content={sseEndpoint} />}
-                  />
-                  <p className="mt-1 text-xs text-default-500">
-                    {t('mcp-sse-legacy-desc', 'Use this only if your MCP client does not support Streamable HTTP yet.')}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="text-sm font-medium text-default-700">Authorization Token</label>
-                  <Input
-                    value={user.userInfo.value?.token || ''}
-                    readOnly
-                    type="password"
-                    className="mt-1"
-                    endContent={<Copy size={20} content={user.userInfo.value?.token ?? ''} />}
-                  />
-                </div>
-
-                <div>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                    <label className="text-sm font-medium text-default-700">MCP Client Configuration</label>
-                    <Select
-                      aria-label={t('transport-type')}
-                      selectedKeys={[selectedTransport]}
-                      onChange={(e) => setSelectedTransport(e.target.value as McpTransportExample)}
-                      size="sm"
-                      className="w-full sm:max-w-xs"
-                      classNames={{
-                        trigger: 'min-h-10 h-10',
-                      }}
-                    >
-                      <SelectItem key="streamable-http">Streamable HTTP (Recommended)</SelectItem>
-                      <SelectItem key="sse">SSE (Legacy)</SelectItem>
-                    </Select>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-default-700">Streamable HTTP Endpoint URL</label>
+                    <Input
+                      value={streamableHttpEndpoint}
+                      readOnly
+                      className="mt-1"
+                      endContent={<Copy size={20} content={streamableHttpEndpoint} />}
+                    />
+                    <p className="mt-1 text-xs text-success-600">
+                      {t('mcp-streamable-http-recommended', 'Recommended for modern MCP clients.')}
+                    </p>
                   </div>
-                  <div className="relative">
-                    <Copy size={20} content={mcpClientConfig} className="absolute top-4 right-2 z-10" />
-                    <MarkdownRender content={`\`\`\`json
+
+                  <div>
+                    <label className="text-sm font-medium text-default-700">Legacy SSE Endpoint URL</label>
+                    <Input
+                      value={sseEndpoint}
+                      readOnly
+                      className="mt-1"
+                      endContent={<Copy size={20} content={sseEndpoint} />}
+                    />
+                    <p className="mt-1 text-xs text-default-500">
+                      {t('mcp-sse-legacy-desc', 'Use this only if your MCP client does not support Streamable HTTP yet.')}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium text-default-700">Authorization Token</label>
+                    <Input
+                      value={user.userInfo.value?.token || ''}
+                      readOnly
+                      type="password"
+                      className="mt-1"
+                      endContent={<Copy size={20} content={user.userInfo.value?.token ?? ''} />}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                      <label className="text-sm font-medium text-default-700">MCP Client Configuration</label>
+                      <Select
+                        aria-label={t('transport-type')}
+                        selectedKeys={[selectedTransport]}
+                        onChange={(e) => setSelectedTransport(e.target.value as McpTransportExample)}
+                        size="sm"
+                        className="w-full sm:max-w-xs"
+                        classNames={{
+                          trigger: 'min-h-10 h-10',
+                        }}
+                      >
+                        <SelectItem key="streamable-http">Streamable HTTP (Recommended)</SelectItem>
+                        <SelectItem key="sse">SSE (Legacy)</SelectItem>
+                      </Select>
+                    </div>
+                    <div className="relative">
+                      <Copy size={20} content={mcpClientConfig} className="absolute top-4 right-2 z-10" />
+                      <MarkdownRender content={`\`\`\`json
 ${mcpClientConfig}
 \`\`\``} />
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </CollapsibleCard>
+            </CollapsibleCard>
+          )}
         </>
       )}
     </div>

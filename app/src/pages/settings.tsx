@@ -72,7 +72,13 @@ export const allSettings: SettingItem[] = [
     title: 'AI',
     icon: 'hugeicons:ai-beautify',
     component: <AiSetting />,
-    requireAdmin: true,
+    // CUSTOM-JOURNAL: was requireAdmin: true, hiding this whole tab (and the
+    // 4 per-user AI feature toggles it hosts) from non-admins entirely --
+    // "it should be up to the user to decide their use of AI, the admin just
+    // determines the model." AiSetting.tsx itself now gates the
+    // admin-only/global-config sections (provider/model management, global
+    // prompts, RAG settings, tag audit) behind user.isSuperAdmin internally.
+    requireAdmin: false,
     keywords: ['ai', 'artificial intelligence', '人工智能'],
   },
   {

@@ -8,7 +8,7 @@ import { api } from '@/lib/trpc';
 import dayjs from '@/lib/dayjs';
 import { RootStore } from '@/store';
 import { UserStore } from '@/store/user';
-import { ShowCommentDialog } from '@/components/BlinkoCard/commentButton';
+import { ShowNotePopup } from '@/components/BlinkoCard/showNotePopup';
 
 type TaskLogRow = {
   id: number;
@@ -165,7 +165,7 @@ const TaskLogDetailModal = ({ id, onClose }: { id: number | null; onClose: () =>
                 {detail.noteId != null && (
                   <div>
                     <div className="text-xs text-desc">{t('note')}</div>
-                    <button className="text-primary hover:underline" onClick={() => ShowCommentDialog(detail.noteId!)}>#{detail.noteId}</button>
+                    <button className="text-primary hover:underline" onClick={() => ShowNotePopup(detail.noteId!)}>#{detail.noteId}</button>
                   </div>
                 )}
                 {detail.message && (
@@ -288,7 +288,7 @@ export const AiTaskLogSection = observer(function AiTaskLogSection() {
                       <span
                         role="button"
                         className="text-xs text-primary hover:underline"
-                        onClick={(e) => { e.stopPropagation(); ShowCommentDialog(log.noteId!); }}
+                        onClick={(e) => { e.stopPropagation(); ShowNotePopup(log.noteId!); }}
                       >
                         #{log.noteId}
                       </span>
