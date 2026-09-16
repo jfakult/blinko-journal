@@ -247,6 +247,16 @@ export const AudioRender = observer(({ files, preview = false }: Props) => {
     useEffect(() => {
       if (!audioRef.current) {
         audioRef.current = new Audio();
+        // CUSTOM-JOURNAL: without this, a bare `new Audio()` that's never
+        // inserted into the DOM can defer fetching metadata until playback
+        // actually starts in some browsers -- which is exactly the "shows
+        // duration for a file just recorded into a not-yet-sent entry (blob:
+        // URL, loads instantly) but 0:00 for one already saved on a note
+        // (remote URL, needs an actual request) while paused" symptom.
+        // Forcing 'metadata' preload makes the loadedmetadata/durationchange
+        // listeners below fire as soon as the element exists, regardless of
+        // play state.
+        audioRef.current.preload = 'metadata';
 
         // Use file preview and construct proper URL like music manager does
         if (file.preview) {

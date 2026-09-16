@@ -40,7 +40,15 @@ export const HandleFileType = (originFiles: Attachment[]): FileType[] => {
       extension: extension ?? '',
       preview: file.path,
       uploadPromise: new PromiseState({ function: async () => file.path }),
-      type: file.type
+      type: file.type,
+      // CUSTOM-JOURNAL: was dropped here -- audioRender.tsx's getDuration()
+      // reads file.metadata?.audioDuration first, before ever touching the
+      // audio element, so a saved voice recording's real duration (already
+      // stored server-side at upload time, see server/routerExpress/file/
+      // upload.ts) never reached the renderer for an already-saved note,
+      // only for one still being composed (which carries duration on the
+      // in-memory File object directly instead).
+      metadata: (file as any).metadata
     }
   })
   res?.map(i => i.uploadPromise.call())
