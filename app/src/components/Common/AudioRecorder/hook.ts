@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 
 export interface recorderControls {
   startRecording: () => Promise<MediaStream | undefined>;
@@ -79,6 +79,27 @@ const useAudioRecorder: (
       mediaStreamRef.current = null;
     }
   }, []);
+
+  // CUSTOM-JOURNAL: nothing stopped the recorder / mic when the dialog was
+  // dismissed by anything other than its own buttons (backdrop, Esc, route
+  // change), leaving the mic live. Refs mirror the latest recorder so the
+  // unmount cleanup (which would otherwise close over stale state) can stop it.
+  const mediaRecorderRef = useRef<MediaRecorder | undefined>(undefined);
+  mediaRecorderRef.current = mediaRecorder;
+  useEffect(() => {
+    return () => {
+      hasStoppedRef.current = true;
+      const recorder = mediaRecorderRef.current;
+      if (recorder && recorder.state !== 'inactive') {
+        try {
+          recorder.stop();
+        } catch (err) {
+          console.error("Failed to stop recorder on unmount:", err);
+        }
+      }
+      cleanupResources();
+    };
+  }, [cleanupResources]);
 
   /**
    * Calling this method would result in the recording to start. Sets `isRecording` to true

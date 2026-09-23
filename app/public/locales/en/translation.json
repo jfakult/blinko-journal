@@ -976,5 +976,7 @@
   "unknown-model": "Unknown model",
   "calls-count_one": "{{count}} call",
   "calls-count_other": "{{count}} calls",
-  "no-calls-recorded": "No individual calls recorded for this task."
+  "no-calls-recorded": "No individual calls recorded for this task.",
+  "recording-wake-lock-unsupported": "Your browser can't keep the screen awake. Keep this app open and set your phone's auto-lock to a longer time while recording (on iPhone, install to Home Screen and update to iOS 18.4+).",
+  "recording-was-backgrounded": "The app was in the background while recording -- your phone may have paused the microphone. Check that the whole recording was captured."
 }

@@ -7,6 +7,7 @@ import { requestMicrophonePermission, checkMicrophonePermission } from "@/lib/ta
 import { Button, Card, CardBody } from "@heroui/react";
 import { useTranslation } from "react-i18next";
 import { playStartChime } from "@/lib/sound";
+import { useWakeLock } from "@/hooks/useWakeLock";
 import { BlinkoStore } from "@/store/blinkoStore";
 import { ToastPlugin } from "@/store/module/Toast/Toast";
 import i18n from "@/lib/i18n";
@@ -38,6 +39,23 @@ export const MyAudioRecorder = ({ onComplete }: MyAudioRecorderProps) => {
     recordingBlob,
     mediaRecorder,
   } = useAudioRecorder();
+
+  // CUSTOM-JOURNAL: keep the phone awake while recording (screen sleep cuts the mic).
+  const { supported: wakeLockSupported } = useWakeLock(isRecording);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [wasBackgrounded, setWasBackgrounded] = useState(false);
+
+  // CUSTOM-JOURNAL: no web API can keep the mic alive once the page is
+  // hidden (iOS/Android suspend MediaRecorder), so at least tell the user
+  // when that happened instead of letting them find a truncated recording.
+  useEffect(() => {
+    if (!isRecording) return;
+    const onHidden = () => {
+      if (document.visibilityState === 'hidden') setWasBackgrounded(true);
+    };
+    document.addEventListener('visibilitychange', onHidden);
+    return () => document.removeEventListener('visibilitychange', onHidden);
+  }, [isRecording]);
 
   // Setup audio analyzer
   const setupAudioAnalyser = useCallback((stream: MediaStream) => {
@@ -172,6 +190,7 @@ export const MyAudioRecorder = ({ onComplete }: MyAudioRecorderProps) => {
           setRecordingTime(prev => prev + 1);
         }, 1000);
         setTimerId(timer);
+        timerRef.current = timer;
 
         // Start milliseconds timer for smoother UI updates
         const msTimer = setInterval(() => {
@@ -211,7 +230,8 @@ export const MyAudioRecorder = ({ onComplete }: MyAudioRecorderProps) => {
     initRecording();
 
     return () => {
-      if (timerId) clearInterval(timerId);
+      // CUSTOM-JOURNAL: `timerId` here is the stale null captured at mount, so the 1 s timer leaked; use the ref.
+      if (timerRef.current) clearInterval(timerRef.current);
       if (millisecondTimerRef.current) clearInterval(millisecondTimerRef.current);
       cleanupAudioAnalyser();
     };
@@ -368,6 +388,13 @@ export const MyAudioRecorder = ({ onComplete }: MyAudioRecorderProps) => {
             <span className="text-white font-bold">REC</span>
             <span className="ml-2 w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
           </div>
+
+          {isRecording && !wakeLockSupported && (
+            <p className="w-full text-xs text-amber-400">{t('recording-wake-lock-unsupported')}</p>
+          )}
+          {wasBackgrounded && (
+            <p className="w-full text-xs text-amber-400">{t('recording-was-backgrounded')}</p>
+          )}
 
           <div className="w-full flex-1 flex flex-col items-center justify-center py-4 min-h-[200px]">
             <div className="my-4 w-full">
